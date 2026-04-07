@@ -1,10 +1,6 @@
 # dev-payload-api
 
-**PayloadFix** — a small HTTP API for **developer / LLM pipelines**: fix messy JSON, basic text stats, SHA-256 hashing. **Not** a single source of truth for financial, legal, or safety-critical decisions — worst case you get a bad parse or wrong hash, not a wire transfer.
-
-## Monetization
-
-RapidAPI or your own site + Stripe (free tier + paid tiers), or small-team B2B flat monthly.
+**PayloadFix** — a small HTTP API for **developer / LLM pipelines**: fix messy JSON, basic text stats, and SHA-256 hashing.
 
 ## Endpoints
 
@@ -15,17 +11,6 @@ RapidAPI or your own site + Stripe (free tier + paid tiers), or small-team B2B f
 | POST | `/v1/json/stabilize` | `JSON.parse`, else `jsonrepair`, optional recursive key sort |
 | POST | `/v1/text/stats` | chars, lines, words, rough token estimate |
 | POST | `/v1/hash/sha256` | SHA-256 (utf8 or hex input) |
-
-## Deploy (Render)
-
-1. Go to [Render](https://render.com) → sign in → **New** → **Blueprint**.
-2. Connect **your** Git repository (fork or clone of this project, or **New → Web Service** and select the repo).
-3. With **Blueprint**, root `render.yaml` fills in the settings.
-4. **Manual** Web Service: **Build** `npm ci && npm run build`, **Start** `npm start`, **Health check path** `/v1/health`.
-5. Optional: **Environment** → `API_KEYS` (comma-separated) → all `/v1/*` calls need header `X-API-Key`.
-6. After deploy, use the URL Render shows (typically `https://<your-service-name>.onrender.com`) and verify with `GET /v1/health`.
-
-**Free** instances may spin down; the first request after idle can be slow.
 
 ## Run locally
 
@@ -72,13 +57,6 @@ docker run -p 3000:3000 -e API_KEYS=your-secret payloadfix
 ```
 
 (Run `npm run build` locally first, or extend the Dockerfile for a single-step image build.)
-
-## RapidAPI
-
-1. Deploy a public HTTPS URL (Railway, Fly.io, Render, etc.).
-2. Provider hub: **Add Your API** → import `openapi.yaml` (replace `YOUR_HOST`).
-3. Pricing: e.g. free 50–100 calls/day, paid above that.
-4. Behind RapidAPI’s proxy you may skip your own `API_KEYS`; if the origin is also public, set a key.
 
 ## License
 
