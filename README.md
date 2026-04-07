@@ -18,6 +18,17 @@
 | POST | `/v1/text/stats` | karakter, sor, szó, durva token becslés |
 | POST | `/v1/hash/sha256` | SHA-256 (utf8 vagy hex input) |
 
+## Deploy (Render)
+
+1. [Render](https://render.com) → bejelentkezés → **New** → **Blueprint**.
+2. Csatlakoztasd a repót: `iami180/dev-payload-api` (vagy **New → Web Service** és ugyanígy a GitHub repo).
+3. Ha **Blueprint**-tel importálod, a gyökérben lévő `render.yaml` kitölti a beállításokat.
+4. Ha **kézzel** Web Service: **Build** `npm ci && npm run build`, **Start** `npm start`, **Health check path** `/v1/health`.
+5. Opcionálisan **Environment** → `API_KEYS` (vesszővel több kulcs) → minden `/v1/*` híváshoz `X-API-Key` kell.
+6. Deploy után a publikus URL pl. `https://dev-payload-api.onrender.com` — próba: `GET .../v1/health`.
+
+A **free** csomag alvó példányt használhat; első kérés lassabb lehet.
+
 ## Futtatás
 
 ```bash

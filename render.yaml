@@ -1,0 +1,15 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Deploy: Dashboard → New → Blueprint → connect github.com/iami180/dev-payload-api
+
+services:
+  - type: web
+    name: dev-payload-api
+    env: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
