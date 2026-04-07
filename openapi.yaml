@@ -1,0 +1,91 @@
+openapi: 3.0.3
+info:
+  title: PayloadFix API
+  description: |
+    Best-effort JSON repair, text stats, SHA-256 for dev / LLM pipelines.
+    Not for financial, legal, or safety-critical use as a single source of truth.
+  version: 0.1.0
+servers:
+  - url: https://YOUR_HOST
+    description: Production
+paths:
+  /v1/health:
+    get:
+      summary: Health and endpoint list
+      security: []
+      responses:
+        '200':
+          description: OK
+  /v1/json/stabilize:
+    post:
+      summary: Parse or repair JSON, optionally sort keys
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw]
+              properties:
+                raw:
+                  type: string
+                  description: JSON string (possibly malformed)
+                sortKeys:
+                  type: boolean
+                  default: true
+                pretty:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Stabilized JSON
+        '422':
+          description: Could not parse even after repair
+  /v1/text/stats:
+    post:
+      summary: Character, line, word counts + rough token hint
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+      responses:
+        '200':
+          description: Stats
+  /v1/hash/sha256:
+    post:
+      summary: SHA-256 of UTF-8 text or hex buffer
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                encoding:
+                  type: string
+                  enum: [utf8, hex]
+                  default: utf8
+      responses:
+        '200':
+          description: Hex digest
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
