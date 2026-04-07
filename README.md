@@ -2,11 +2,9 @@
 
 **PayloadFix** — a small HTTP API for **developer / LLM pipelines**: fix messy JSON, basic text stats, SHA-256 hashing. **Not** a single source of truth for financial, legal, or safety-critical decisions — worst case you get a bad parse or wrong hash, not a wire transfer.
 
-## Market (short)
+## Monetization
 
-- Many teams hit **broken JSON** (LLMs, legacy APIs, manual edits). *Normalize / repair* utilities are a known category (encoding repair, CSV sanitize, token counters, etc.).
-- **Audience:** backend developers, automation (n8n, Make), testers, prompt pipelines.
-- **Monetization:** RapidAPI or your own site + Stripe (free tier + paid tiers), or small-team B2B flat monthly.
+RapidAPI or your own site + Stripe (free tier + paid tiers), or small-team B2B flat monthly.
 
 ## Endpoints
 
