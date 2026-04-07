@@ -19,11 +19,11 @@ RapidAPI or your own site + Stripe (free tier + paid tiers), or small-team B2B f
 ## Deploy (Render)
 
 1. Go to [Render](https://render.com) → sign in → **New** → **Blueprint**.
-2. Connect the repo `iami180/dev-payload-api` (or **New → Web Service** and pick the same GitHub repo).
+2. Connect **your** Git repository (fork or clone of this project, or **New → Web Service** and select the repo).
 3. With **Blueprint**, root `render.yaml` fills in the settings.
 4. **Manual** Web Service: **Build** `npm ci && npm run build`, **Start** `npm start`, **Health check path** `/v1/health`.
 5. Optional: **Environment** → `API_KEYS` (comma-separated) → all `/v1/*` calls need header `X-API-Key`.
-6. After deploy, your public URL may look like `https://dev-payload-api.onrender.com` — try `GET .../v1/health`.
+6. After deploy, use the URL Render shows (typically `https://<your-service-name>.onrender.com`) and verify with `GET /v1/health`.
 
 **Free** instances may spin down; the first request after idle can be slow.
 

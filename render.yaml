@@ -1,9 +1,9 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
-# Deploy: Dashboard → New → Blueprint → connect github.com/iami180/dev-payload-api
+# In the Render dashboard: New → Blueprint → connect this repo (or fork).
 
 services:
   - type: web
-    name: dev-payload-api
+    name: payloadfix-api
     env: node
     plan: free
     buildCommand: npm ci && npm run build
