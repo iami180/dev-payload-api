@@ -2,6 +2,8 @@
 
 **PayloadFix** — HTTP helpers for **LLM output**: turn messy model text into parsed JSON (markdown code fences, JSON buried in prose, common syntax glitches), plus rough text stats and SHA-256 for tooling.
 
+Full project description (Hungarian): **[PROJECT.md](./PROJECT.md)**.
+
 ## Endpoints
 
 | Method | Path | What it does |
