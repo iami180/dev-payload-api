@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "fix:llm-json": "tsx scripts/fix-llm-json.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.7",

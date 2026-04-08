@@ -51,6 +51,29 @@ curl -s -X POST localhost:3000/v1/hash/sha256 \
 
 On Windows PowerShell, fix quoting or use `curl.exe` with a JSON file and `--data-binary @body.json`.
 
+## Tests
+
+```bash
+npm test
+```
+
+Includes a **temp-file roundtrip** test: saves a fake LLM reply to disk, parses it, writes `parsed.json`, and asserts the content.
+
+## Try on real files (CLI)
+
+The HTTP API does **not** edit your repo files — it only returns JSON. To **write** a fixed JSON file from a saved model reply:
+
+1. Save the model output as UTF-8 text, e.g. `llm-out.txt`.
+2. Run:
+
+```bash
+npm run fix:llm-json -- llm-out.txt fixed.json
+```
+
+Pretty JSON goes to `fixed.json`; hints go to stderr. Omit `fixed.json` to print JSON to stdout.
+
+Same logic as `POST /v1/llm/stabilize` (no server required).
+
 ## Docker
 
 ```bash
