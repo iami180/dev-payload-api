@@ -1,6 +1,6 @@
 # dev-payload-api
 
-**PayloadFix** — a small HTTP API for **developer / LLM pipelines**: fix messy JSON, basic text stats, and SHA-256 hashing.
+**PayloadFix** — HTTP helpers for **LLM output**: turn messy model text into parsed JSON (markdown code fences, JSON buried in prose, common syntax glitches), plus rough text stats and SHA-256 for tooling.
 
 ## Endpoints
 
@@ -8,9 +8,11 @@
 |--------|------|----------------|
 | GET | `/` | Service name + version |
 | GET | `/v1/health` | Liveness + endpoint list |
-| POST | `/v1/json/stabilize` | `JSON.parse`, else `jsonrepair`, optional recursive key sort |
+| POST | `/v1/llm/stabilize` | LLM-oriented pipeline on `raw` string → parsed JSON (`llmHints` shows what ran) |
 | POST | `/v1/text/stats` | chars, lines, words, rough token estimate |
 | POST | `/v1/hash/sha256` | SHA-256 (utf8 or hex input) |
+
+`POST /v1/llm/stabilize` body: `{ "raw": "<paste model message>", "sortKeys": true, "pretty": true }`.
 
 ## Run locally
 
@@ -34,9 +36,9 @@ Environment: see `.env.example`. If `API_KEYS` is set (comma-separated), every `
 ```bash
 curl -s localhost:3000/v1/health
 
-curl -s -X POST localhost:3000/v1/json/stabilize \
+curl -s -X POST localhost:3000/v1/llm/stabilize \
   -H "Content-Type: application/json" \
-  -d '{"raw": "{\"a\":1,}"}'
+  -d '{"raw": "Here is the result:\n```json\n{\"a\":1,}\n```"}'
 
 curl -s -X POST localhost:3000/v1/text/stats \
   -H "Content-Type: application/json" \

@@ -30,8 +30,8 @@ describe('stress / adversarial', () => {
     expect(r.ok).toBe(true)
   })
 
-  it('POST stabilize with sortKeys false preserves key order', async () => {
-    const res = await app.request('http://test/v1/json/stabilize', {
+  it('POST llm/stabilize with sortKeys false preserves key order', async () => {
+    const res = await app.request('http://test/v1/llm/stabilize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

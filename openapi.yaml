@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: PayloadFix API
   description: |
-    Best-effort JSON repair, text stats, SHA-256 for dev / LLM pipelines.
-    Not for financial, legal, or safety-critical use as a single source of truth.
-  version: 0.1.0
+    LLM-focused helpers: extract and repair JSON from model output (markdown fences, prose around JSON),
+    plus text stats and SHA-256 for tooling around LLM pipelines.
+  version: 0.2.0
 servers:
   - url: https://YOUR_HOST
     description: Production
@@ -16,9 +16,9 @@ paths:
       responses:
         '200':
           description: OK
-  /v1/json/stabilize:
+  /v1/llm/stabilize:
     post:
-      summary: Parse or repair JSON, optionally sort keys
+      summary: Parse LLM-style text into JSON (fences, embedded object, jsonrepair)
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -31,7 +31,9 @@ paths:
               properties:
                 raw:
                   type: string
-                  description: JSON string (possibly malformed)
+                  description: >
+                    Full model message or snippet — may include ```json fences, surrounding prose,
+                    or minor JSON syntax errors.
                 sortKeys:
                   type: boolean
                   default: true
@@ -42,10 +44,10 @@ paths:
         '200':
           description: Stabilized JSON
         '422':
-          description: Could not parse even after repair
+          description: Could not parse even after LLM prep and repair
   /v1/text/stats:
     post:
-      summary: Character, line, word counts + rough token hint
+      summary: Character, line, word counts + rough token hint (for LLM context sizing)
       security:
         - ApiKeyAuth: []
       requestBody:

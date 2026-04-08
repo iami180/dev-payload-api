@@ -19,11 +19,11 @@ describe('PayloadFix HTTP (integration)', () => {
       expect(res.status).toBe(200)
       const j = (await res.json()) as { ok: boolean; endpoints: string[] }
       expect(j.ok).toBe(true)
-      expect(j.endpoints).toContain('POST /v1/json/stabilize')
+      expect(j.endpoints).toContain('POST /v1/llm/stabilize')
     })
 
-    it('POST /v1/json/stabilize valid', async () => {
-      const res = await app.request('http://test/v1/json/stabilize', {
+    it('POST /v1/llm/stabilize valid', async () => {
+      const res = await app.request('http://test/v1/llm/stabilize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: '{"z":1,"a":2}', sortKeys: true }),
@@ -34,8 +34,8 @@ describe('PayloadFix HTTP (integration)', () => {
       expect(j.data).toEqual({ a: 2, z: 1 })
     })
 
-    it('POST /v1/json/stabilize invalid body (not JSON)', async () => {
-      const res = await app.request('http://test/v1/json/stabilize', {
+    it('POST /v1/llm/stabilize invalid body (not JSON)', async () => {
+      const res = await app.request('http://test/v1/llm/stabilize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: 'not-json',
@@ -43,8 +43,8 @@ describe('PayloadFix HTTP (integration)', () => {
       expect(res.status).toBe(400)
     })
 
-    it('POST /v1/json/stabilize 422 when cannot parse', async () => {
-      const res = await app.request('http://test/v1/json/stabilize', {
+    it('POST /v1/llm/stabilize 422 when cannot parse', async () => {
+      const res = await app.request('http://test/v1/llm/stabilize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: 'totally {{{' }),
@@ -52,13 +52,28 @@ describe('PayloadFix HTTP (integration)', () => {
       expect(res.status).toBe(422)
     })
 
-    it('POST /v1/json/stabilize validation: empty raw', async () => {
-      const res = await app.request('http://test/v1/json/stabilize', {
+    it('POST /v1/llm/stabilize validation: empty raw', async () => {
+      const res = await app.request('http://test/v1/llm/stabilize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: '' }),
       })
       expect(res.status).toBe(400)
+    })
+
+    it('POST /v1/llm/stabilize strips markdown and returns llmHints', async () => {
+      const res = await app.request('http://test/v1/llm/stabilize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          raw: '```json\n{"ok":true,}\n```',
+          sortKeys: true,
+        }),
+      })
+      expect(res.status).toBe(200)
+      const j = (await res.json()) as { llmHints: string[]; data: { ok: boolean } }
+      expect(j.data).toEqual({ ok: true })
+      expect(j.llmHints).toContain('markdown_fence_removed')
     })
 
     it('POST /v1/text/stats', async () => {

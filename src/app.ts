@@ -2,8 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { stabilizeFromLlm } from './lib/llmJsonPrep.js'
 import { sortKeysDeep } from './lib/sortKeys.js'
-import { stabilizeJsonInput } from './lib/stabilizeJson.js'
 import { apiKeyGate } from './middleware/apiKey.js'
 
 export const app = new Hono()
@@ -14,8 +14,8 @@ app.use('/v1/*', apiKeyGate())
 app.get('/', (c) =>
   c.json({
     service: 'PayloadFix',
-    tagline: 'Low-stakes JSON + text utilities for dev / LLM pipelines',
-    version: '0.1.0',
+    tagline: 'LLM output helpers: extract & repair JSON from model text, plus token-ish stats and SHA-256',
+    version: '0.2.0',
     docs: '/v1/health',
   }),
 )
@@ -23,13 +23,12 @@ app.get('/', (c) =>
 app.get('/v1/health', (c) =>
   c.json({
     ok: true,
+    focus: 'LLM replies (markdown fences, prose around JSON, minor JSON syntax errors)',
     endpoints: [
-      'POST /v1/json/stabilize',
+      'POST /v1/llm/stabilize',
       'POST /v1/text/stats',
       'POST /v1/hash/sha256',
     ],
-    disclaimer:
-      'Best-effort tools for development. Do not use as sole input for financial, legal, or safety-critical decisions.',
   }),
 )
 
@@ -39,7 +38,7 @@ const stabilizeSchema = z.object({
   pretty: z.boolean().optional().default(true),
 })
 
-app.post('/v1/json/stabilize', async (c) => {
+app.post('/v1/llm/stabilize', async (c) => {
   let body: unknown
   try {
     body = await c.req.json()
@@ -53,7 +52,7 @@ app.post('/v1/json/stabilize', async (c) => {
   }
 
   const { raw, sortKeys, pretty } = parsed.data
-  const result = stabilizeJsonInput(raw)
+  const result = stabilizeFromLlm(raw)
   if (!result.ok) {
     return c.json(result, 422)
   }
@@ -67,6 +66,7 @@ app.post('/v1/json/stabilize', async (c) => {
     ok: true,
     method: result.method,
     repairedFrom: result.repairedFrom,
+    llmHints: result.llmHints,
     data,
     stringified: output,
   })
