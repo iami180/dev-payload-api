@@ -1,13 +1,16 @@
 openapi: 3.0.3
 info:
-  title: PayloadFix API
+  title: PayloadFix — LLM JSON extract & repair
   description: |
-    LLM-focused helpers: extract and repair JSON from model output (markdown fences, prose around JSON),
-    plus text stats and SHA-256 for tooling around LLM pipelines.
+    Turn messy **LLM / chatbot text** into parsed JSON: strips ```json fences, finds JSON in prose,
+    fixes common syntax issues. Also text stats and SHA-256 for pipeline tooling.
+
+    **RapidAPI:** set `servers[0].url` to your HTTPS base (no trailing slash) before import.
+    If your origin uses `API_KEYS`, add header `X-API-Key` to backend requests from RapidAPI.
   version: 0.2.0
 servers:
   - url: https://YOUR_HOST
-    description: Production
+    description: Replace YOUR_HOST with your deployed API origin (e.g. Render URL)
 paths:
   /v1/health:
     get:
@@ -40,9 +43,24 @@ paths:
                 pretty:
                   type: boolean
                   default: true
+            examples:
+              fenced:
+                summary: Markdown-wrapped JSON
+                value:
+                  raw: "```json\n{\"items\":[1,2],}\n```"
+                  sortKeys: true
+                  pretty: true
+              prose:
+                summary: JSON inside a sentence
+                value:
+                  raw: 'Sure — here is the data: {"ok":true,} thanks!'
       responses:
         '200':
           description: Stabilized JSON
+          content:
+            application/json:
+              schema:
+                type: object
         '422':
           description: Could not parse even after LLM prep and repair
   /v1/text/stats:

@@ -14,6 +14,10 @@
 
 `POST /v1/llm/stabilize` body: `{ "raw": "<paste model message>", "sortKeys": true, "pretty": true }`.
 
+## RapidAPI
+
+This project is meant to be consumed as an **API** (e.g. listed on RapidAPI). Step-by-step: **[RAPIDAPI.md](./RAPIDAPI.md)**. Import `openapi.yaml` after setting the `servers` URL to your HTTPS deployment.
+
 ## Run locally
 
 ```bash
