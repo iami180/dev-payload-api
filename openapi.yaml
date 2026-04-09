@@ -1,216 +1,439 @@
 openapi: 3.0.3
 info:
-  title: PayloadFix — LLM output reliability API
+  title: PayloadFix
   description: |
-    **Structured LLM output** for production: extract JSON from messy model text, repair syntax,
-    **validate** against a flat type schema, optional **type coercion**, **strict** vs **lenient** modes,
-    **field-level errors**, and a **confidence** heuristic. Also text stats and SHA-256 for pipelines.
+    **PayloadFix** repairs, validates, and normalizes messy **LLM / chatbot text** into **production-safe structured JSON**.
 
-    **RapidAPI:** set `servers[0].url` to your HTTPS base (no trailing slash) before import.
-    If your origin uses `API_KEYS`, add header `X-API-Key` to backend requests from RapidAPI.
+    Use **`/v1/llm/stabilize`** for best-effort extraction and syntax repair (markdown fences, prose around JSON, trailing commas via `jsonrepair`).  
+    Use **`/v1/llm/validate-schema`** when you need **guaranteed shape**: the parsed root must be a **plain object** `{...}`, with optional **flat schema** types, **required** fields, **type coercion**, and **strict** vs **lenient** validation plus **confidence** scoring.
 
-    **Errors (v0.4+):** HTTP `400`/`401` and most failures use
-    `{ "success": false, "error": { "code": "SNAKE_CASE", "message": "...", "details": {} } }`.
-    `422` on `/v1/llm/stabilize` and `/v1/llm/validate-schema` also use nested `error.code` / `error.message`
-    (validate-schema may add `issues`, `fieldErrors`, `data` alongside).
+    **Utilities:** text statistics and SHA-256 for pipeline tooling.
+
+    **Auth:** If your deployment sets `API_KEYS`, send header **`X-API-Key`**. If unset, `/v1/*` is open (development only). RapidAPI → your origin often adds this header via provider settings.
+
+    **Errors (v0.4+):** Most failures return `{ "success": false, "error": { "code", "message", "details?" } }`.  
+    Common codes: `INVALID_BODY`, `REQUEST_VALIDATION_FAILED`, `UNAUTHORIZED`, `INVALID_JSON`, `PARSE_FAILED`, `ROOT_NOT_OBJECT`, `SCHEMA_VALIDATION_FAILED`, `INVALID_HEX_INPUT`.
+
+    **No external LLM calls** — processing is local on the server.
   version: 0.4.0
+  contact:
+    name: PayloadFix API
+    url: https://github.com/iami180/dev-payload-api
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
 servers:
   - url: https://YOUR_HOST
-    description: Replace YOUR_HOST with your deployed API origin (e.g. Render URL)
+    description: >
+      Replace YOUR_HOST with your HTTPS base URL (no trailing slash), e.g. https://dev-payload-api.onrender.com
+
+tags:
+  - name: LLM Output
+    description: >
+      Extract, repair, and validate structured output from model text. Prefer **validate-schema** for production guarantees.
+  - name: Utilities
+    description: Text metrics and cryptographic hashing helpers.
+  - name: Health
+    description: Service discovery and liveness.
+
 paths:
-  /v1/health:
+  /:
     get:
-      summary: Health and endpoint list
+      tags: [Health]
+      summary: Service metadata
+      description: >
+        Public service card (not under `/v1/`). Returns name, version, and pointer to `/v1/health`. Does not require `X-API-Key` even when `/v1/*` is protected.
       security: []
       responses:
         '200':
-          description: OK
-  /v1/llm/stabilize:
-    post:
-      summary: Parse LLM-style text into JSON (fences, embedded object, jsonrepair)
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [raw]
-              properties:
-                raw:
-                  type: string
-                  description: >
-                    Full model message or snippet — may include ```json fences, surrounding prose,
-                    or minor JSON syntax errors.
-                sortKeys:
-                  type: boolean
-                  default: true
-                pretty:
-                  type: boolean
-                  default: true
-            examples:
-              fenced:
-                summary: Markdown-wrapped JSON
-                value:
-                  raw: "```json\n{\"items\":[1,2],}\n```"
-                  sortKeys: true
-                  pretty: true
-              prose:
-                summary: JSON inside a sentence
-                value:
-                  raw: 'Sure — here is the data: {"ok":true,} thanks!'
-      responses:
-        '200':
-          description: Stabilized JSON
+          description: Service info
           content:
             application/json:
               schema:
-                type: object
-        '400':
-          description: Invalid JSON body or Zod validation
+                $ref: '#/components/schemas/RootMetaResponse'
+              example:
+                service: PayloadFix
+                tagline: 'LLM output reliability: extract, repair, schema validation, coercion, and confidence for production pipelines'
+                version: 0.4.0
+                docs: /v1/health
+
+  /v1/health:
+    get:
+      tags: [Health]
+      summary: Liveness and endpoint list
+      description: >
+        Returns `ok`, a short focus string, and the list of available `POST` routes. Use for uptime checks and discovery.
+      responses:
+        '200':
+          description: API is reachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+                focus: 'Structured LLM output — parse, validate, coerce, strict/lenient modes'
+                endpoints:
+                  - POST /v1/llm/stabilize
+                  - POST /v1/llm/validate-schema
+                  - POST /v1/text/stats
+                  - POST /v1/hash/sha256
+        '401':
+          description: Missing or invalid X-API-Key when server has API_KEYS set
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
-        '422':
-          description: Could not parse even after LLM prep and repair
-          content:
-            application/json:
-              schema:
-                type: object
-                description: success false, error.code INVALID_JSON, optional llmHints
-  /v1/llm/validate-schema:
+              example:
+                success: false
+                error:
+                  code: UNAUTHORIZED
+                  message: Missing or invalid X-API-Key header.
+
+  /v1/llm/stabilize:
     post:
-      summary: Stabilize LLM output, then validate (and optionally coerce) against a flat schema
+      tags: [LLM Output]
+      summary: Repair and extract JSON from LLM-style text
       description: |
-        Runs the same extract/repair pipeline as `/v1/llm/stabilize`, then validates `data` as a
-        **plain object** against `schema` (key → type string: `string`, `number`, `integer`, `boolean`,
-        `array`, `object`, `any`). Optional `required` keys, `coerceTypes` for string→number/boolean, and
-        `mode`: **strict** returns `422` on validation failure; **lenient** returns `200` with
-        `success: false` and best-effort `data`, `issues`, `fieldErrors`, `confidence`.
-      security:
-        - ApiKeyAuth: []
+        **Best-effort cleanup:** strips ` ```json ` / ` ``` ` fences, finds JSON embedded in prose, repairs common syntax errors (e.g. trailing commas) using `jsonrepair`, then returns parsed `data` and a `stringified` copy.
+
+        **Important limitation:** this endpoint does **not** guarantee the result is always a single intended **business object** `{...}`. In some cases (e.g. heavy surrounding prose), the repaired value may be an **array** or another JSON shape that is still valid JSON.
+
+        For **production-safe** structured output with required keys and types, use **`/v1/llm/validate-schema`** after or instead of relying solely on stabilize.
+      operationId: llmStabilize
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [raw, schema]
-              properties:
-                raw:
-                  type: string
-                  description: Raw LLM output (may include fences or prose).
-                schema:
-                  type: object
-                  additionalProperties:
-                    type: string
-                  description: Flat map of field name to expected type.
-                  example:
-                    name: string
-                    price: number
-                    in_stock: boolean
-                required:
-                  type: array
-                  items:
-                    type: string
-                  description: Keys that must be present (missing → validation issue).
-                coerceTypes:
-                  type: boolean
-                  default: false
-                  description: >
-                    When true, coerce common string forms to number/boolean per schema (e.g. "1999" → 1999,
-                    "true"/"yes"/"1" → true).
-                mode:
-                  type: string
-                  enum: [strict, lenient]
-                  default: strict
+              $ref: '#/components/schemas/StabilizeRequest'
             examples:
-              strict:
-                summary: Strict validation with required fields
+              fencedMalformed:
+                summary: Fenced JSON with trailing comma
                 value:
-                  raw: '{"name":"Widget","price":"1999","in_stock":"yes"}'
+                  raw: "```json\n{\"items\":[1,2],}\n```"
+                  sortKeys: true
+                  pretty: true
+              proseEmbedded:
+                summary: JSON inside natural language
+                value:
+                  raw: 'Sure — here is the data: {"ok":true,"count":3,} thanks!'
+      responses:
+        '200':
+          description: JSON successfully parsed (possibly after repair)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StabilizeSuccessResponse'
+              examples:
+                repaired:
+                  summary: After fence strip + repair
+                  value:
+                    success: true
+                    ok: true
+                    method: repaired
+                    repairedFrom: jsonrepair
+                    llmHints:
+                      - markdown_fence_removed
+                    data:
+                      items: [1, 2]
+                    stringified: "{\n  \"items\": [\n    1,\n    2\n  ]\n}"
+                direct:
+                  summary: Clean JSON, no repair
+                  value:
+                    success: true
+                    ok: true
+                    method: direct
+                    llmHints: []
+                    data:
+                      a: 1
+                    stringified: '{"a":1}'
+        '400':
+          description: Invalid JSON body or request validation (Zod)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+              examples:
+                invalidBody:
+                  value:
+                    success: false
+                    error:
+                      code: INVALID_BODY
+                      message: Request body must be valid JSON with a string field "raw".
+                zodFail:
+                  value:
+                    success: false
+                    error:
+                      code: REQUEST_VALIDATION_FAILED
+                      message: Request body validation failed.
+                      details:
+                        issues:
+                          - path: [raw]
+                            message: String must contain at least 1 character(s)
+        '422':
+          description: Could not parse or repair into JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StabilizeError422Response'
+              example:
+                success: false
+                error:
+                  code: INVALID_JSON
+                  message: Could not parse or repair JSON from the given text.
+                  details:
+                    parseCode: invalid_json
+                    hint: Unexpected token...
+                    llmHints: []
+                llmHints: []
+
+  /v1/llm/validate-schema:
+    post:
+      tags: [LLM Output]
+      summary: Validate and normalize LLM output against a flat schema
+      description: |
+        Runs the **same extract/repair pipeline** as `/v1/llm/stabilize`, then enforces structure:
+
+        1. The parsed JSON root must be a **plain object** `{...}` — not an array, not a primitive string/number/boolean, not `null`.
+        2. **`schema`** is a flat map: each key is a field name; each value is a type string: `string`, `number`, `integer`, `boolean`, `array`, `object`, `any`. Non-string values in `schema` are ignored for validation/coercion.
+        3. **`required`**: keys that must exist (missing → `fieldErrors`).
+        4. **`coerceTypes`**: when `true`, coerce common string forms to numbers/booleans per schema (e.g. `"1999"` → `1999`, `"yes"`/`"1"` → `true`).
+        5. **`mode`**: **`strict`** — validation / parse / non-object root failures → **HTTP 422**. **`lenient`** — may return **HTTP 200** with `success: false` and still include `data`, `issues`, `fieldErrors`, `confidence` for debugging.
+
+        **Production use:** this is the endpoint for **reliable structured output** validation. **`ROOT_NOT_OBJECT`** (strict **422** or lenient **200**) tells you stabilize-shaped JSON is not acceptable as your business object.
+
+        **Limits:** `raw` max ~512 KiB; `schema` max 200 keys and ~48 KiB JSON-serialized size (server-side checks).
+      operationId: llmValidateSchema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateSchemaRequest'
+            examples:
+              strictOk:
+                summary: Strict + coercion + required fields
+                value:
+                  raw: "```json\n{\"name\":\"Apple\",\"price\":\"1999\"}\n```"
                   schema:
                     name: string
                     price: number
-                    in_stock: boolean
                   required: [name, price]
                   coerceTypes: true
                   mode: strict
+              lenientBadField:
+                summary: Lenient mode with invalid field (200, success false)
+                value:
+                  raw: '{"name":"x","price":"not-a-number"}'
+                  schema:
+                    name: string
+                    price: number
+                  required: [name, price]
+                  coerceTypes: false
+                  mode: lenient
       responses:
         '200':
-          description: Parsed and validated (lenient mode may return success false with issues)
+          description: >
+            Success (`success: true`) or lenient failure (`success: false` with `error`, `issues`, `fieldErrors`). Non-object root in lenient mode returns `success: false` and `error.code: ROOT_NOT_OBJECT`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidateSchemaResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    data:
+                      name: Apple
+                      price: 1999
+                    issues:
+                      - Removed markdown code fence
+                      - Coerced number from string "1999"
+                    fieldErrors: []
+                    confidence: 0.87
+                    llmHints:
+                      - markdown_fence_removed
+                    method: direct
+                lenientValidationFail:
+                  value:
+                    success: false
+                    error:
+                      code: SCHEMA_VALIDATION_FAILED
+                      message: One or more fields failed schema validation.
+                    data:
+                      name: x
+                      price: not-a-number
+                    issues:
+                      - 'Field "price" expected type "number" but got string'
+                    fieldErrors:
+                      - field: price
+                        code: type_mismatch
+                        message: 'Field "price" expected type "number" but got string'
+                    confidence: 0.64
+                    llmHints: []
+                    method: direct
+                lenientRootNotObject:
+                  value:
+                    success: false
+                    error:
+                      code: ROOT_NOT_OBJECT
+                      message: Parsed JSON must be a plain object for schema validation (not an array or primitive).
+                    data: ['prose', { ok: true }]
+                    issues:
+                      - Parsed JSON must be a plain object for schema validation (not an array or primitive).
+                    confidence: 0.42
         '400':
-          description: Invalid request body (Zod)
+          description: Invalid JSON body or Zod validation (e.g. missing `schema`, bad `mode`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '422':
           description: >
-            Parse failure, root not an object (strict), or validation failure in strict mode
+            Strict mode: parse failure (`PARSE_FAILED`), non-object root (`ROOT_NOT_OBJECT`), or schema validation failure (`SCHEMA_VALIDATION_FAILED`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidateSchemaResponse'
+              examples:
+                parseFailed:
+                  value:
+                    success: false
+                    error:
+                      code: PARSE_FAILED
+                      message: Could not extract valid JSON from the model output.
+                      details:
+                        parseCode: invalid_json
+                        hint: ...
+                        llmHints: []
+                    issues: []
+                    llmHints: []
+                    confidence: 0
+                rootNotObjectStrict:
+                  value:
+                    success: false
+                    error:
+                      code: ROOT_NOT_OBJECT
+                      message: Parsed JSON must be a plain object for schema validation (not an array or primitive).
+                    data: [{ x: 1 }, 'Thanks']
+                    issues:
+                      - Parsed JSON must be a plain object for schema validation (not an array or primitive).
+                    confidence: 0.55
+                schemaFailedStrict:
+                  value:
+                    success: false
+                    error:
+                      code: SCHEMA_VALIDATION_FAILED
+                      message: One or more fields failed schema validation.
+                    data:
+                      name: x
+                      price: oops
+                    fieldErrors:
+                      - field: price
+                        code: type_mismatch
+                        message: 'Field "price" expected type "number" but got string'
+                    issues:
+                      - 'Field "price" expected type "number" but got string'
+                    confidence: 0.61
+
   /v1/text/stats:
     post:
-      summary: Character, line, word counts + rough token hint (for LLM context sizing)
-      security:
-        - ApiKeyAuth: []
+      tags: [Utilities]
+      summary: Text statistics and rough token hint
+      description: >
+        Returns character, line, and word counts plus `roughTokensLlMHint` (`ceil(chars/4)`), **not** a real tokenizer — useful for rough LLM context sizing.
+      operationId: textStats
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [text]
-              properties:
-                text:
-                  type: string
+              $ref: '#/components/schemas/TextStatsRequest'
+            example:
+              text: "hello world\nline two"
       responses:
         '200':
-          description: Stats
+          description: Stats computed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TextStatsResponse'
+              example:
+                success: true
+                ok: true
+                chars: 17
+                lines: 2
+                words: 3
+                roughTokensLlMHint: 5
+                note: roughTokensLlMHint is ~chars/4, not a real tokenizer.
         '400':
-          description: Validation or invalid JSON body
+          description: Invalid JSON or validation (e.g. empty `text`, too long)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
+
   /v1/hash/sha256:
     post:
-      summary: SHA-256 of UTF-8 text or hex buffer
-      security:
-        - ApiKeyAuth: []
+      tags: [Utilities]
+      summary: SHA-256 digest of UTF-8 text or hex bytes
+      description: >
+        Computes SHA-256. Default `encoding: utf8` hashes the UTF-8 bytes of `text`. With `encoding: hex`, `text` must be an **even-length** hexadecimal string (0-9, a-f, A-F).
+      operationId: hashSha256
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [text]
-              properties:
-                text:
-                  type: string
-                encoding:
-                  type: string
-                  enum: [utf8, hex]
-                  default: utf8
+              $ref: '#/components/schemas/HashSha256Request'
+            examples:
+              utf8:
+                summary: NIST vector — string abc
+                value:
+                  text: abc
+                  encoding: utf8
+              hex:
+                summary: Hash raw bytes from hex
+                value:
+                  text: deadbeef
+                  encoding: hex
       responses:
         '200':
-          description: Hex digest
+          description: 64-character lowercase hex digest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sha256Response'
+              example:
+                success: true
+                ok: true
+                sha256: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+                encoding: utf8
         '400':
-          description: Validation, invalid JSON, or invalid hex when encoding=hex
+          description: Invalid JSON, validation failure, or invalid hex (wrong charset or odd length)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
+              examples:
+                invalidHex:
+                  value:
+                    success: false
+                    error:
+                      code: INVALID_HEX_INPUT
+                      message: Hex encoding requires a non-empty even-length hexadecimal string (0-9, a-f).
+
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Required when the deployment sets `API_KEYS`. Use one of the comma-separated keys configured on the server.
+
   schemas:
     ApiErrorDetail:
       type: object
@@ -218,13 +441,16 @@ components:
       properties:
         code:
           type: string
+          description: Machine-readable error code (SNAKE_CASE).
           example: REQUEST_VALIDATION_FAILED
         message:
           type: string
+          description: Human-readable summary for clients and logs.
         details:
           type: object
           additionalProperties: true
-          description: Optional Zod issues, parse hints, etc.
+          description: Optional context (Zod `issues`, parse `hint`, `llmHints`, etc.).
+
     StandardErrorResponse:
       type: object
       required: [success, error]
@@ -234,6 +460,124 @@ components:
           enum: [false]
         error:
           $ref: '#/components/schemas/ApiErrorDetail'
+
+    StabilizeError422Response:
+      type: object
+      required: [success, error, llmHints]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: '#/components/schemas/ApiErrorDetail'
+        llmHints:
+          type: array
+          items:
+            type: string
+          description: Pipeline hints (e.g. `markdown_fence_removed`).
+
+    RootMetaResponse:
+      type: object
+      properties:
+        service:
+          type: string
+        tagline:
+          type: string
+        version:
+          type: string
+        docs:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [ok, endpoints]
+      properties:
+        ok:
+          type: boolean
+        focus:
+          type: string
+        endpoints:
+          type: array
+          items:
+            type: string
+
+    StabilizeRequest:
+      type: object
+      required: [raw]
+      properties:
+        raw:
+          type: string
+          description: Raw LLM output text to repair or extract JSON from (fences, prose, minor syntax errors).
+          minLength: 1
+        sortKeys:
+          type: boolean
+          default: true
+          description: When true, object keys are sorted recursively before returning `data`.
+        pretty:
+          type: boolean
+          default: true
+          description: When true, `stringified` is pretty-printed with indentation.
+
+    StabilizeSuccessResponse:
+      type: object
+      required: [success, ok, method, llmHints, data, stringified]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        ok:
+          type: boolean
+          enum: [true]
+        method:
+          type: string
+          enum: [direct, repaired]
+          description: Whether JSON.parse alone succeeded or jsonrepair was used.
+        repairedFrom:
+          type: string
+          description: Present when `method` is `repaired` (e.g. `jsonrepair`).
+        llmHints:
+          type: array
+          items:
+            type: string
+          description: e.g. `markdown_fence_removed`, `embedded_json_extracted`.
+        data:
+          description: Parsed JSON value (object, array, or primitive).
+          nullable: true
+        stringified:
+          type: string
+          description: JSON.stringify of `data`, optionally pretty-printed.
+
+    ValidateSchemaRequest:
+      type: object
+      required: [raw, schema]
+      properties:
+        raw:
+          type: string
+          description: Raw LLM output (max ~512 KiB). Same prep as stabilize.
+          minLength: 1
+        schema:
+          type: object
+          additionalProperties: true
+          description: >
+            Flat field → type map. Only **string** values are used (e.g. `"price": "number"`). Max 200 keys; serialized size limit ~48 KiB.
+        required:
+          type: array
+          items:
+            type: string
+          description: Field names that must be present on the object (missing → `fieldErrors`).
+          maxItems: 100
+        coerceTypes:
+          type: boolean
+          default: false
+          description: Enable automatic coercion (numeric strings, yes/no booleans, etc.) before validation.
+        mode:
+          type: string
+          enum: [strict, lenient]
+          default: strict
+          description: >-
+            Strict mode returns HTTP 422 on failure. Lenient mode often returns HTTP 200 with success false
+            for validation issues.
+
     FieldError:
       type: object
       properties:
@@ -241,22 +585,29 @@ components:
           type: string
         code:
           type: string
+          description: e.g. `required_missing`, `type_mismatch`, `invalid_schema_type`, `undefined_value`.
         message:
           type: string
+
     ValidateSchemaResponse:
       type: object
+      description: >
+        Shape varies: on **parse failure** (`PARSE_FAILED`, 422) `data` and `fieldErrors` are usually absent.
+        On **success**, `error` is absent. On validation or root errors, `error` is set.
       properties:
         success:
           type: boolean
+        error:
+          $ref: '#/components/schemas/ApiErrorDetail'
         data:
-          description: Coerced object when parse succeeded; may be absent on parse failure
           type: object
           additionalProperties: true
+          description: Coerced/parsed object when applicable; may be array for `ROOT_NOT_OBJECT`.
         issues:
           type: array
           items:
             type: string
-          description: Human-readable pipeline and validation notes
+          description: Human-readable pipeline and validation notes.
         fieldErrors:
           type: array
           items:
@@ -264,19 +615,77 @@ components:
         confidence:
           type: number
           format: float
-          description: Heuristic 0..1 based on repairs, coercions, and errors
+          description: Heuristic 0..1 (fewer repairs/coercions/errors → higher).
         llmHints:
           type: array
           items:
             type: string
         method:
           type: string
+          enum: [direct, repaired]
         repairedFrom:
           type: string
-        error:
-          $ref: '#/components/schemas/ApiErrorDetail'
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
+
+    TextStatsRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Non-empty text to analyze (max ~512 KiB).
+          minLength: 1
+
+    TextStatsResponse:
+      type: object
+      required: [success, ok, chars, lines, words, roughTokensLlMHint, note]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        ok:
+          type: boolean
+          enum: [true]
+        chars:
+          type: integer
+        lines:
+          type: integer
+        words:
+          type: integer
+        roughTokensLlMHint:
+          type: integer
+        note:
+          type: string
+
+    HashSha256Request:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: UTF-8 string to hash, or hexadecimal byte string when `encoding` is `hex`.
+          minLength: 1
+        encoding:
+          type: string
+          enum: [utf8, hex]
+          default: utf8
+          description: utf8 → hash UTF-8 bytes; hex → decode hex pairs then hash (must be even length, hex chars only).
+
+    Sha256Response:
+      type: object
+      required: [success, ok, sha256, encoding]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        ok:
+          type: boolean
+          enum: [true]
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        encoding:
+          type: string
+          enum: [utf8, hex]
+
+security:
+  - ApiKeyAuth: []

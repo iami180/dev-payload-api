@@ -35,6 +35,7 @@ RapidAPI users call **RapidAPI’s** URL with `X-RapidAPI-Key`. Your server can 
 
 ## 5. Listing quality
 
+- **Hub README / long description:** copy-paste from **[RAPIDAPI_README.md](./RAPIDAPI_README.md)** (English, marketplace-ready).
 - **Short description:** focus on *LLM output → valid JSON* (markdown fences, prose, small syntax fixes).
 - **Long description:** paste examples of `raw` payloads (fenced JSON, “Here is the result: …”).
 - **Category:** something like *Data* or *Tools* / *Text analysis* — pick what fits RapidAPI’s taxonomy.
