@@ -38,6 +38,17 @@ npm start
 
 Environment: see `.env.example`. If `API_KEYS` is set (comma-separated), every `/v1/*` request must send `X-API-Key`. If unset, leave it open **for development only**.
 
+## Live smoke tests (production URL)
+
+Verifies the deployed API over HTTPS (default [Render](https://dev-payload-api.onrender.com/)) — stabilize, validate-schema, stats, hash, error shape.
+
+```bash
+npm install
+npm run test:live
+```
+
+Optional env (see `.env.example`): `PAYLOADFIX_LIVE_URL`, `PAYLOADFIX_API_KEY` (required if your deployment sets `API_KEYS`). First request may be slow (cold start).
+
 ## Example requests
 
 ```bash
