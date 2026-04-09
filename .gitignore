@@ -2,3 +2,10 @@ node_modules/
 dist/
 .env
 *.log
+
+# Local / dev only — not needed to deploy or list on RapidAPI (keep on your machine)
+/tests/
+/docs/
+/scripts/
+/vitest.config.ts
+src/**/*.test.ts

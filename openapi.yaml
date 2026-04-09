@@ -1,13 +1,19 @@
 openapi: 3.0.3
 info:
-  title: PayloadFix — LLM JSON extract & repair
+  title: PayloadFix — LLM output reliability API
   description: |
-    Turn messy **LLM / chatbot text** into parsed JSON: strips ```json fences, finds JSON in prose,
-    fixes common syntax issues. Also text stats and SHA-256 for pipeline tooling.
+    **Structured LLM output** for production: extract JSON from messy model text, repair syntax,
+    **validate** against a flat type schema, optional **type coercion**, **strict** vs **lenient** modes,
+    **field-level errors**, and a **confidence** heuristic. Also text stats and SHA-256 for pipelines.
 
     **RapidAPI:** set `servers[0].url` to your HTTPS base (no trailing slash) before import.
     If your origin uses `API_KEYS`, add header `X-API-Key` to backend requests from RapidAPI.
-  version: 0.2.0
+
+    **Errors (v0.4+):** HTTP `400`/`401` and most failures use
+    `{ "success": false, "error": { "code": "SNAKE_CASE", "message": "...", "details": {} } }`.
+    `422` on `/v1/llm/stabilize` and `/v1/llm/validate-schema` also use nested `error.code` / `error.message`
+    (validate-schema may add `issues`, `fieldErrors`, `data` alongside).
+  version: 0.4.0
 servers:
   - url: https://YOUR_HOST
     description: Replace YOUR_HOST with your deployed API origin (e.g. Render URL)
@@ -61,8 +67,97 @@ paths:
             application/json:
               schema:
                 type: object
+        '400':
+          description: Invalid JSON body or Zod validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
         '422':
           description: Could not parse even after LLM prep and repair
+          content:
+            application/json:
+              schema:
+                type: object
+                description: success false, error.code INVALID_JSON, optional llmHints
+  /v1/llm/validate-schema:
+    post:
+      summary: Stabilize LLM output, then validate (and optionally coerce) against a flat schema
+      description: |
+        Runs the same extract/repair pipeline as `/v1/llm/stabilize`, then validates `data` as a
+        **plain object** against `schema` (key → type string: `string`, `number`, `integer`, `boolean`,
+        `array`, `object`, `any`). Optional `required` keys, `coerceTypes` for string→number/boolean, and
+        `mode`: **strict** returns `422` on validation failure; **lenient** returns `200` with
+        `success: false` and best-effort `data`, `issues`, `fieldErrors`, `confidence`.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw, schema]
+              properties:
+                raw:
+                  type: string
+                  description: Raw LLM output (may include fences or prose).
+                schema:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Flat map of field name to expected type.
+                  example:
+                    name: string
+                    price: number
+                    in_stock: boolean
+                required:
+                  type: array
+                  items:
+                    type: string
+                  description: Keys that must be present (missing → validation issue).
+                coerceTypes:
+                  type: boolean
+                  default: false
+                  description: >
+                    When true, coerce common string forms to number/boolean per schema (e.g. "1999" → 1999,
+                    "true"/"yes"/"1" → true).
+                mode:
+                  type: string
+                  enum: [strict, lenient]
+                  default: strict
+            examples:
+              strict:
+                summary: Strict validation with required fields
+                value:
+                  raw: '{"name":"Widget","price":"1999","in_stock":"yes"}'
+                  schema:
+                    name: string
+                    price: number
+                    in_stock: boolean
+                  required: [name, price]
+                  coerceTypes: true
+                  mode: strict
+      responses:
+        '200':
+          description: Parsed and validated (lenient mode may return success false with issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateSchemaResponse'
+        '400':
+          description: Invalid request body (Zod)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '422':
+          description: >
+            Parse failure, root not an object (strict), or validation failure in strict mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateSchemaResponse'
   /v1/text/stats:
     post:
       summary: Character, line, word counts + rough token hint (for LLM context sizing)
@@ -81,6 +176,12 @@ paths:
       responses:
         '200':
           description: Stats
+        '400':
+          description: Validation or invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
   /v1/hash/sha256:
     post:
       summary: SHA-256 of UTF-8 text or hex buffer
@@ -103,7 +204,77 @@ paths:
       responses:
         '200':
           description: Hex digest
+        '400':
+          description: Validation, invalid JSON, or invalid hex when encoding=hex
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
 components:
+  schemas:
+    ApiErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: REQUEST_VALIDATION_FAILED
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional Zod issues, parse hints, etc.
+    StandardErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: '#/components/schemas/ApiErrorDetail'
+    FieldError:
+      type: object
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    ValidateSchemaResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          description: Coerced object when parse succeeded; may be absent on parse failure
+          type: object
+          additionalProperties: true
+        issues:
+          type: array
+          items:
+            type: string
+          description: Human-readable pipeline and validation notes
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        confidence:
+          type: number
+          format: float
+          description: Heuristic 0..1 based on repairs, coercions, and errors
+        llmHints:
+          type: array
+          items:
+            type: string
+        method:
+          type: string
+        repairedFrom:
+          type: string
+        error:
+          $ref: '#/components/schemas/ApiErrorDetail'
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
