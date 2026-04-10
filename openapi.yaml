@@ -117,7 +117,7 @@ paths:
         Ugyanaz a prep, mint a stabilize-nál, majd:
         - Gyökér **kötelezően** sima **`{...}`** objektum.
         - **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.
-        - **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (központi „hard fail” kapu).
+        - **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (kozponti "hard fail" kapu).
         - **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.
         - Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.
         - **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).
@@ -128,42 +128,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ValidateSchemaRequest'
-            examples:
-              flatStrict:
-                summary: Lapos séma + coerce
-                value:
-                  raw: '{"name":"A","price":"10"}'
-                  schema:
-                    name: string
-                    price: number
-                  coerceTypes: true
-                  mode: strict
-              nestedContract:
-                summary: Nested + contract enforcement
-                value:
-                  raw: '{"user":{"name":"x","age":30}}'
-                  schema:
-                    type: object
-                    properties:
-                      user:
-                        type: object
-                        properties:
-                          name: string
-                          age: { type: number }
-                        required: [name, age]
-                        additionalProperties: false
-                    required: [user]
-                  contractEnforcement: true
-                  coerceTypes: false
-                  mode: strict
-              schemaRef:
-                summary: Registry-ből séma (előtte POST /v1/registry/schemas)
-                value:
-                  raw: '{"a":"1"}'
-                  schemaRef:
-                    schemaId: 00000000-0000-4000-8000-000000000000
-                  coerceTypes: true
-                  driftLog: true
+            example:
+              raw: '{"name":"A","price":"10"}'
+              schema:
+                name: string
+                price: number
+              coerceTypes: true
+              mode: strict
       responses:
         '200':
           description: success true, vagy lenient módban success false diagnosztikával

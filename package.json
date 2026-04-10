@@ -10,7 +10,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test:live": "vitest run --config vitest.live.config.ts"
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "openapi:bundle": "npx @redocly/cli bundle openapi.yaml -o openapi.json"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.7",

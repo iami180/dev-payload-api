@@ -1,0 +1,1459 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PayloadFix",
+    "description": "**PayloadFix** — LLM / chatbot szöveg → **tiszta JSON**, opcionálisan **szerződés-szerű validáció** (flat vagy nested séma), **registry** (mentett, verziózott sémák), **drift napló**, **metering**.\n\n**Két fő használat:**\n- **`POST /v1/llm/stabilize`** — legjobb erőfeszítés: fence, prose, `jsonrepair`; gyökér lehet tömb/primitív is.\n- **`POST /v1/llm/validate-schema`** — gyökér **kötelezően `{...}` objektum**; séma inline **`schema`** *vagy* **`schemaRef`** a registry-ből; **`contractEnforcement`**, **`unknownFieldPolicy`**, **`transparency`**, **`driftReport`**, **`contractGateway`**, **`meteringHint`**.\n\n**Registry:** `POST/GET /v1/registry/schemas`, verzió: `POST .../versions`, összesítő: **`GET /v1/registry/metering`**.\n\n**Auth:** Ha a szerveren be van állítva `API_KEYS`, minden **`/v1/*`** kéréshez **`X-API-Key`**. A **`GET /`** nyilvános. RapidAPI-n gyakran a provider backend beállításában adod hozzá az `X-API-Key`-t az origin felé.\n\n**Hibakódok:** `INVALID_BODY`, `REQUEST_VALIDATION_FAILED`, `UNAUTHORIZED`, `INVALID_JSON`, `PARSE_FAILED`, `ROOT_NOT_OBJECT`, `SCHEMA_VALIDATION_FAILED`, `INVALID_NESTED_SCHEMA`, `SCHEMA_REF_NOT_FOUND`, `NOT_FOUND`, `INVALID_HEX_INPUT`.\n\nKülső LLM hívás **nincs** — minden helyben fut a szerveren.\n\n**Import után:** cseréld a `servers[0].url` értékét a saját HTTPS base URL-edre (perjel nélkül).\n",
+    "version": "0.5.0",
+    "contact": {
+      "name": "PayloadFix API",
+      "url": "https://github.com/iami180/dev-payload-api"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://YOUR_HOST",
+      "description": "Cseréld YOUR_HOST-ot a saját HTTPS originre (nincs záró perjel), pl. https://dev-payload-api.onrender.com\n"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Meta és életjel."
+    },
+    {
+      "name": "LLM Output",
+      "description": "Stabilize (parse/repair) és validate-schema (szerződés / séma)."
+    },
+    {
+      "name": "Registry",
+      "description": "Mentett sémák, verziók, shape diff, aggregate metering."
+    },
+    {
+      "name": "Utilities",
+      "description": "Szöveg statisztika és SHA-256."
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Szolgáltatás meta",
+        "description": "Nyilvános; nem kell API kulcs. Név, verzió, docs hivatkozás.",
+        "operationId": "getRootMeta",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RootMetaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness és végpontlista",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hiányzó vagy hibás X-API-Key (ha API_KEYS be van állítva)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/stabilize": {
+      "post": {
+        "tags": [
+          "LLM Output"
+        ],
+        "summary": "JSON kinyerés / javítás LLM-szerű szövegből",
+        "description": "Fence levágás, beágyazott JSON, `jsonrepair`. **Nem** garantál egyetlen üzleti `{object}` alakot.\nSikeres válaszban **`warnings`** (pl. több JSON jelölt).\n",
+        "operationId": "llmStabilize",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StabilizeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sikeres parse (közvetlenül vagy javítás után)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StabilizeSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Érvénytelen body / Zod",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nem sikerült JSON-t kinyerni",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StabilizeError422Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/validate-schema": {
+      "post": {
+        "tags": [
+          "LLM Output"
+        ],
+        "summary": "Séma-validáció (flat / nested), contract gateway, drift jelentés",
+        "description": "Ugyanaz a prep, mint a stabilize-nál, majd:\n- Gyökér **kötelezően** sima **`{...}`** objektum.\n- **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.\n- **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (kozponti \"hard fail\" kapu).\n- **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.\n- Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.\n- **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).\n",
+        "operationId": "llmValidateSchema",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateSchemaRequest"
+              },
+              "example": {
+                "raw": "{\"name\":\"A\",\"price\":\"10\"}",
+                "schema": {
+                  "name": "string",
+                  "price": "number"
+                },
+                "coerceTypes": true,
+                "mode": "strict"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "success true, vagy lenient módban success false diagnosztikával",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateSchemaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body / Zod / INVALID_NESTED_SCHEMA",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SCHEMA_REF_NOT_FOUND — ismeretlen schemaId vagy verzió",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Strict — PARSE_FAILED, ROOT_NOT_OBJECT, SCHEMA_VALIDATION_FAILED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateSchemaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/registry/schemas": {
+      "post": {
+        "tags": [
+          "Registry"
+        ],
+        "summary": "Új séma regisztrálása (verzió 1)",
+        "operationId": "registryCreateSchema",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "schemaId + version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Érvénytelen séma body vagy Zod validáció",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Registry"
+        ],
+        "summary": "Összes regisztrált séma listája",
+        "operationId": "registryListSchemas",
+        "responses": {
+          "200": {
+            "description": "Lista a regisztrált sémákról (id, név, verziók)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/registry/schemas/{id}": {
+      "get": {
+        "tags": [
+          "Registry"
+        ],
+        "summary": "Egy séma teljes dokumentuma (minden verzió)",
+        "operationId": "registryGetSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Séma dokumentum minden verzióval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryDocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ismeretlen schema id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/registry/schemas/{id}/versions": {
+      "post": {
+        "tags": [
+          "Registry"
+        ],
+        "summary": "Új sémaverzió + shape diff az előzőhöz képest",
+        "operationId": "registryAddVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryVersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Új verzió száma és shape diff az előzőhöz képest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryVersionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Érvénytelen séma vagy body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ismeretlen schema id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/registry/metering": {
+      "get": {
+        "tags": [
+          "Registry"
+        ],
+        "summary": "Aggregate metering (siker / összes hívás, registry események)",
+        "description": "**Siker-alapú számlázáshoz** használd a `validateSchema.success` / `validateSchema.total` és a válasz **`meteringHint.billableValidateSuccess`** mezőjét egyes validate hívásoknál.\n",
+        "operationId": "registryGetMetering",
+        "responses": {
+          "200": {
+            "description": "Összesített metering számlálók",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeteringWrapperResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/text/stats": {
+      "post": {
+        "tags": [
+          "Utilities"
+        ],
+        "summary": "Szöveg statisztika (chars, lines, words, rough token hint)",
+        "operationId": "textStats",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextStatsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Karakter/sor/szó és durva token becslés",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextStatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Érvénytelen vagy üres text mező",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/hash/sha256": {
+      "post": {
+        "tags": [
+          "Utilities"
+        ],
+        "summary": "SHA-256 (utf8 vagy hex bájtok)",
+        "operationId": "hashSha256",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HashSha256Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SHA-256 hash hex stringgel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sha256Response"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Érvénytelen body vagy hex input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Kötelező, ha a szerveren `API_KEYS` be van állítva. RapidAPI-n gyakran fix header az origin felé.\n"
+      }
+    },
+    "schemas": {
+      "ApiErrorDetail": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "StandardErrorResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "error"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorDetail"
+          }
+        }
+      },
+      "RootMetaResponse": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "example": "PayloadFix"
+          },
+          "tagline": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "example": "0.5.0"
+          },
+          "docs": {
+            "type": "string",
+            "example": "/v1/health"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "endpoints"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "focus": {
+            "type": "string"
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "POST /v1/llm/stabilize",
+              "POST /v1/llm/validate-schema",
+              "POST /v1/registry/schemas",
+              "GET /v1/registry/schemas",
+              "GET /v1/registry/schemas/:id",
+              "POST /v1/registry/schemas/:id/versions",
+              "GET /v1/registry/metering",
+              "POST /v1/text/stats",
+              "POST /v1/hash/sha256"
+            ]
+          }
+        }
+      },
+      "StabilizeRequest": {
+        "type": "object",
+        "required": [
+          "raw"
+        ],
+        "properties": {
+          "raw": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sortKeys": {
+            "type": "boolean",
+            "default": true
+          },
+          "pretty": {
+            "type": "boolean",
+            "default": true
+          },
+          "preferJsonBlock": {
+            "type": "string",
+            "enum": [
+              "first",
+              "last",
+              "largest"
+            ],
+            "description": "Több top-level `{...}` blokk esetén melyik maradjon (alapértelmezés: largest, döntetlennél a szövegben későbbi).\n"
+          }
+        }
+      },
+      "StabilizeSuccessResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "method",
+          "llmHints",
+          "warnings",
+          "data",
+          "stringified"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "repaired"
+            ]
+          },
+          "repairedFrom": {
+            "type": "string"
+          },
+          "llmHints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "data": {},
+          "stringified": {
+            "type": "string"
+          }
+        }
+      },
+      "StabilizeError422Response": {
+        "type": "object",
+        "description": "Sikertelen stabilize: `error.details` gyakran tartalmaz `failedStage` (`payload_too_large` | `syntax_repair`) és `repairTrace` (generikus lépések — hol állt meg a javítás, nem mondat-specifikus logika).\n",
+        "required": [
+          "success",
+          "error",
+          "llmHints"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorDetail"
+          },
+          "llmHints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SchemaRef": {
+        "type": "object",
+        "required": [
+          "schemaId"
+        ],
+        "properties": {
+          "schemaId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Ha hiányzik, a legutóbbi verzió."
+          }
+        }
+      },
+      "ValidateSchemaRequest": {
+        "type": "object",
+        "required": [
+          "raw"
+        ],
+        "description": "**Kötelező:** `raw`. **Kötelező az egyik:** `schema` VAGY `schemaRef` (a szerver validálja; mindkettő hiánya → 400).\n",
+        "properties": {
+          "raw": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "schemaRef": {
+            "$ref": "#/components/schemas/SchemaRef"
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          },
+          "coerceTypes": {
+            "type": "boolean",
+            "default": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "lenient"
+            ],
+            "default": "strict"
+          },
+          "unknownFieldPolicy": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "reject",
+              "strip",
+              "report"
+            ],
+            "default": "allow"
+          },
+          "contractEnforcement": {
+            "type": "boolean",
+            "default": false
+          },
+          "driftLog": {
+            "type": "boolean",
+            "default": true,
+            "description": "Ha true és van schemaRef, drift esemény append a szerveren."
+          },
+          "richFailureExplanations": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "FieldError": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FailureExplanation": {
+        "type": "object",
+        "properties": {
+          "explanation": {
+            "type": "string"
+          },
+          "remediationHint": {
+            "type": "string"
+          }
+        }
+      },
+      "RichFailureItem": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "remediationHint": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          }
+        }
+      },
+      "ContractGatewayMeta": {
+        "type": "object",
+        "properties": {
+          "opinionated": {
+            "type": "boolean"
+          },
+          "hardFailGuaranteeActive": {
+            "type": "boolean"
+          },
+          "contractSatisfied": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "failureClass": {
+            "type": "string",
+            "nullable": true,
+            "description": "parse | root_shape | invalid_contract_definition | schema_violation"
+          },
+          "teamSummary": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "MeteringHint": {
+        "type": "object",
+        "properties": {
+          "billableValidateSuccess": {
+            "type": "boolean"
+          },
+          "event": {
+            "type": "string",
+            "example": "validate_schema"
+          }
+        }
+      },
+      "DriftFieldDetail": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "receivedPreview": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "beforeAfter": {
+            "type": "object",
+            "properties": {
+              "before": {},
+              "after": {}
+            }
+          }
+        }
+      },
+      "DriftReport": {
+        "type": "object",
+        "properties": {
+          "driftFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DriftFieldDetail"
+            }
+          }
+        }
+      },
+      "Transparency": {
+        "type": "object",
+        "properties": {
+          "pipeline": {
+            "type": "object",
+            "properties": {
+              "stages": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "coercions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "from": {},
+                "to": {},
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "removedFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unknownFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "syntaxRepairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ValidateSchemaResponse": {
+        "type": "object",
+        "description": "Siker és hiba esetén változó mezők (success, error, fieldErrors, stb.)",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorDetail"
+          },
+          "failureExplanation": {
+            "$ref": "#/components/schemas/FailureExplanation"
+          },
+          "richFailures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RichFailureItem"
+            }
+          },
+          "driftReport": {
+            "$ref": "#/components/schemas/DriftReport"
+          },
+          "contractGateway": {
+            "$ref": "#/components/schemas/ContractGatewayMeta"
+          },
+          "meteringHint": {
+            "$ref": "#/components/schemas/MeteringHint"
+          },
+          "registryContext": {
+            "type": "object",
+            "properties": {
+              "schemaId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            }
+          },
+          "data": {},
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fieldErrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "llmHints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "repaired"
+            ]
+          },
+          "repairedFrom": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transparency": {
+            "$ref": "#/components/schemas/Transparency"
+          }
+        }
+      },
+      "RegistryCreateRequest": {
+        "type": "object",
+        "required": [
+          "schema"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "RegistryCreateResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "schemaId",
+          "version"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "schemaId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "shapeDiffFromPrevious": {
+            "description": "Első verziónál null; később diff az előzőhöz képest",
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "addedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "removedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "typeChanges": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "RegistryListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "schemas"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "latestVersion": {
+                  "type": "integer"
+                },
+                "versionCount": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RegistryDocumentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "id",
+          "name",
+          "versions"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "changelog": {
+                  "type": "string"
+                },
+                "shapeDiffFromPrevious": {
+                  "type": "object",
+                  "properties": {
+                    "addedPaths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "removedPaths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "typeChanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "RegistryVersionRequest": {
+        "type": "object",
+        "required": [
+          "schema"
+        ],
+        "properties": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "changelog": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "RegistryVersionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "version",
+          "shapeDiffFromPrevious"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "shapeDiffFromPrevious": {
+            "type": "object",
+            "properties": {
+              "addedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "removedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "typeChanges": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "MeteringSnapshot": {
+        "type": "object",
+        "properties": {
+          "stabilize": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          },
+          "validateSchema": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          },
+          "registry": {
+            "type": "object",
+            "properties": {
+              "schemasCreated": {
+                "type": "integer"
+              },
+              "versionsCreated": {
+                "type": "integer"
+              }
+            }
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "MeteringWrapperResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "metering"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "metering": {
+            "$ref": "#/components/schemas/MeteringSnapshot"
+          }
+        }
+      },
+      "TextStatsRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "TextStatsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "chars",
+          "lines",
+          "words",
+          "roughTokensLlMHint",
+          "note"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "chars": {
+            "type": "integer"
+          },
+          "lines": {
+            "type": "integer"
+          },
+          "words": {
+            "type": "integer"
+          },
+          "roughTokensLlMHint": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "HashSha256Request": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf8",
+              "hex"
+            ],
+            "default": "utf8"
+          }
+        }
+      },
+      "Sha256Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "ok",
+          "sha256",
+          "encoding"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf8",
+              "hex"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

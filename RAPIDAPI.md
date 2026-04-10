@@ -4,9 +4,16 @@ This repo is an **HTTP API** (no web UI). Use this checklist after your backend 
 
 ## 1. Prepare the spec
 
-1. Open `openapi.yaml` (spec **0.5.0** — stabilize, validate-schema, registry, metering, utilities).
+1. Prefer **`openapi.yaml`** (spec **0.5.0**). If the Hub shows **“unknown internal error”** on save, try **`openapi.json`** instead (same spec, bundled — some RapidAPI imports handle JSON more reliably).
 2. Replace `https://YOUR_HOST` under `servers` with your real base URL, **without** a trailing slash  
-   (e.g. `https://dev-payload-api.onrender.com`). Re-import the file on RapidAPI whenever you ship API changes so operations and schemas stay in sync.
+   (e.g. `https://dev-payload-api.onrender.com`). A placeholder host can sometimes confuse the Hub; use your **live** URL before **Save**.
+3. Regenerate JSON after YAML edits: `npx @redocly/cli bundle openapi.yaml -o openapi.json` (or `npm run openapi:bundle`).
+
+### If import still fails
+
+- Wait a few minutes and **retry** (transient RapidAPI errors happen).
+- **Discard** → upload again; try another browser or incognito.
+- Nested-schema / multi-example bodies were simplified in the spec to avoid fragile Hub parsers; full behavior is unchanged in the real API.
 
 ## 2. Backend auth vs RapidAPI
 
@@ -24,7 +31,7 @@ RapidAPI users call **RapidAPI’s** URL with `X-RapidAPI-Key`. Your server can 
 ## 3. Add the API on RapidAPI
 
 1. [RapidAPI Provider Dashboard](https://rapidapi.com/provider/dashboard) → **Add New API** (or **My APIs** → add).
-2. **Import** OpenAPI: upload `openapi.yaml` (with `servers` already fixed), or paste spec.
+2. **Import** OpenAPI: upload `openapi.yaml` or `openapi.json` (with `servers` already fixed), or paste spec.
 3. Map **Base URL** if the importer asks (same as in `servers`).
 4. Save and run **Test** in the hub console on `GET /v1/health` and `POST /v1/llm/stabilize`.
 
