@@ -6,6 +6,7 @@ data/
 undefined/
 
 # Local / dev only — not needed to deploy or list on RapidAPI (keep on your machine)
+/examples/
 /tests/
 /docs/
 /scripts/
