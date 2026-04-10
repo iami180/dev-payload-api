@@ -46,6 +46,7 @@ paths:
       tags: [Health]
       summary: Szolgáltatás meta
       description: Nyilvános; nem kell API kulcs. Név, verzió, docs hivatkozás.
+      operationId: getRootMeta
       security: []
       responses:
         '200':
@@ -59,6 +60,7 @@ paths:
     get:
       tags: [Health]
       summary: Liveness és végpontlista
+      operationId: getHealth
       responses:
         '200':
           description: OK
@@ -207,6 +209,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RegistryCreateResponse'
         '400':
+          description: Érvénytelen séma body vagy Zod validáció
           content:
             application/json:
               schema:
@@ -217,6 +220,7 @@ paths:
       operationId: registryListSchemas
       responses:
         '200':
+          description: Lista a regisztrált sémákról (id, név, verziók)
           content:
             application/json:
               schema:
@@ -235,11 +239,13 @@ paths:
             type: string
       responses:
         '200':
+          description: Séma dokumentum minden verzióval
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryDocumentResponse'
         '404':
+          description: Ismeretlen schema id
           content:
             application/json:
               schema:
@@ -264,16 +270,19 @@ paths:
               $ref: '#/components/schemas/RegistryVersionRequest'
       responses:
         '200':
+          description: Új verzió száma és shape diff az előzőhöz képest
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryVersionResponse'
         '400':
+          description: Érvénytelen séma vagy body
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '404':
+          description: Ismeretlen schema id
           content:
             application/json:
               schema:
@@ -288,6 +297,7 @@ paths:
       operationId: registryGetMetering
       responses:
         '200':
+          description: Összesített metering számlálók
           content:
             application/json:
               schema:
@@ -306,11 +316,13 @@ paths:
               $ref: '#/components/schemas/TextStatsRequest'
       responses:
         '200':
+          description: Karakter/sor/szó és durva token becslés
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TextStatsResponse'
         '400':
+          description: Érvénytelen vagy üres text mező
           content:
             application/json:
               schema:
@@ -329,11 +341,13 @@ paths:
               $ref: '#/components/schemas/HashSha256Request'
       responses:
         '200':
+          description: SHA-256 hash hex stringgel
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Sha256Response'
         '400':
+          description: Érvénytelen body vagy hex input
           content:
             application/json:
               schema:
@@ -744,7 +758,23 @@ components:
         version:
           type: integer
         shapeDiffFromPrevious:
+          description: Első verziónál null; később diff az előzőhöz képest
+          type: object
           nullable: true
+          properties:
+            addedPaths:
+              type: array
+              items:
+                type: string
+            removedPaths:
+              type: array
+              items:
+                type: string
+            typeChanges:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
 
     RegistryListResponse:
       type: object
