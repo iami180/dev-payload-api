@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "ok": true,
+  "method": "repaired",
+  "repairedFrom": "jsonrepair",
+  "llmHints": [
+    "markdown_fence_removed"
+  ],
+  "warnings": [],
+  "data": {
+    "items": [
+      {
+        "qty": "2",
+        "sku": "A1"
+      },
+      {
+        "qty": "1",
+        "sku": "B2"
+      }
+    ],
+    "orderId": "ORD-991",
+    "paid": "true",
+    "total": "49.99"
+  },
+  "stringified": "{\n  \"items\": [\n    {\n      \"qty\": \"2\",\n      \"sku\": \"A1\"\n    },\n    {\n      \"qty\": \"1\",\n      \"sku\": \"B2\"\n    }\n  ],\n  \"orderId\": \"ORD-991\",\n  \"paid\": \"true\",\n  \"total\": \"49.99\"\n}"
+}

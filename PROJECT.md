@@ -6,7 +6,7 @@ A **dev-payload-api** (termékneve: **PayloadFix**) egy **REST API** (HTTP/JSON)
 
 A projekt **nem** webes felhasználói felület: fejlesztők, automatizálás (n8n, Make, saját backend), vagy piactér (**RapidAPI**) számára készült **programozható szolgáltatás**.
 
-Verzió (package): **0.2.0**.
+Verzió (package): **0.4.0** (ellenőrizd a `package.json`-t).
 
 ---
 
@@ -29,6 +29,7 @@ Minden útvonal **JSON** választ ad, kivéve ha másként nincs jelölve. CORS:
 | `GET` | `/` | Szolgáltatás meta: név, tagline, verzió, docs hivatkozás. |
 | `GET` | `/v1/health` | Életjel, fókusz leírás, listázott végpontok. |
 | `POST` | `/v1/llm/stabilize` | **Fő funkció:** LLM-szöveg → kinyert és javított JSON. |
+| `POST` | `/v1/llm/validate-schema` | Ugyanaz a prep + **lapos vagy beágyazott** séma, koerció, strict/lenient, confidence. |
 | `POST` | `/v1/text/stats` | Karakter-, sor-, szószám + durva „token” becslés (kb. karakter/4). |
 | `POST` | `/v1/hash/sha256` | SHA-256 hash UTF-8 szövegre vagy hex dekódolt bájtokra. |
 
@@ -50,6 +51,13 @@ Minden útvonal **JSON** választ ad, kivéve ha másként nincs jelölve. CORS:
 2. `JSON.parse`; ha hiba → **jsonrepair** + újra parse (max. **512 KiB** bemenet, különben `payload_too_large`).
 3. Ha még mindig hiba: **első kiegyensúlyozott `{...}` vagy `[...]`** kinyerése (idézőjelek közötti `{`/`}` figyelembevéve).
 4. Opcionális kulcsrendezés a válasz előállításakor.
+
+### `POST /v1/llm/validate-schema`
+
+- **Lapos séma:** mezőnév → típus string (mint eddig); max 200 top-level kulcs.
+- **Beágyazott séma:** gyökér kötelezően `{ "type": "object", "properties": { ... } }` — a `properties` kulcs **kötelező** (lehet `{}`), hogy ne ütközzön a `{ "type": "object" }` lapos mezővel. Objektumok: `type`, `properties`, opcionális `required`; tömb: `{ "type": "array", "items": ... }`. A `required` a kérés body-ban a gyökérhez **összevonódik** a séma gyökér `required` tömbjével. Hibák mezőútja: pl. `user.age`, `tags.0`.
+- Érvénytelen beágyazott séma definíció: **400**, `INVALID_NESTED_SCHEMA`.
+- Limit: beágyazott sémánál max **250** property slot, mélység **24** (plusz ~48 KiB JSON méret).
 
 ### `POST /v1/text/stats`
 

@@ -4,9 +4,9 @@ This repo is an **HTTP API** (no web UI). Use this checklist after your backend 
 
 ## 1. Prepare the spec
 
-1. Open `openapi.yaml`.
+1. Open `openapi.yaml` (spec **0.5.0** — stabilize, validate-schema, registry, metering, utilities).
 2. Replace `https://YOUR_HOST` under `servers` with your real base URL, **without** a trailing slash  
-   (e.g. `https://dev-payload-api.onrender.com`).
+   (e.g. `https://dev-payload-api.onrender.com`). Re-import the file on RapidAPI whenever you ship API changes so operations and schemas stay in sync.
 
 ## 2. Backend auth vs RapidAPI
 
@@ -39,6 +39,32 @@ RapidAPI users call **RapidAPI’s** URL with `X-RapidAPI-Key`. Your server can 
 - **Short description:** focus on *LLM output → valid JSON* (markdown fences, prose, small syntax fixes).
 - **Long description:** paste examples of `raw` payloads (fenced JSON, “Here is the result: …”).
 - **Category:** something like *Data* or *Tools* / *Text analysis* — pick what fits RapidAPI’s taxonomy.
+
+### When the hub text is too short (complex APIs)
+
+RapidAPI favors **short listings**. For PayloadFix, **do not** put the full nested-schema story in the hub blurb.
+
+**Use a split:**
+
+| Layer | What to put |
+|--------|----------------|
+| **Short / subtitle** | One sentence: pain + outcome (see snippets below). |
+| **Long description (if limit allows)** | 3 bullets max + **one link**: “Full docs & nested schema → GitHub README” (your repo URL). |
+| **OpenAPI import** | Your `openapi.yaml` already carries **per-endpoint** descriptions — that’s where complexity belongs. Users who expand an endpoint see the detail. |
+| **External** | GitHub `README.md` + `PROJECT.md` (Hungarian) = canonical depth. Optional: enable GitHub Pages on `/docs` later. |
+
+**Copy-paste snippets (English):**
+
+- **Ultra-short (~120 chars):**  
+  `Turn messy LLM replies into real JSON: strips markdown fences, repairs syntax, optional nested schema validation & coercion.`
+
+- **Short blurb (~350 chars):**  
+  `PayloadFix cleans model output so your app gets structured JSON. POST raw chat text → parsed JSON (fences, prose, trailing commas). Use validate-schema for production: flat or nested object schemas, type coercion, strict/lenient modes, field-level errors and confidence. Full API details: [YOUR_GITHUB_REPO_URL]`
+
+- **First line of long README (hub):**  
+  `**Docs:** [YOUR_GITHUB_REPO_URL] — nested schema, examples, limits. This page is a summary.`
+
+Replace `[YOUR_GITHUB_REPO_URL]` with your public repo link (or a short link).
 
 ## 6. Health check
 

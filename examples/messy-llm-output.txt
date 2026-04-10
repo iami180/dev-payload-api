@@ -1,0 +1,15 @@
+Sure! Here is the structured data you asked for:
+
+```json
+{
+  "orderId": "ORD-991",
+  "items": [
+    {"sku": "A1", "qty": "2",},
+    {"sku": "B2", "qty": "1",}
+  ],
+  "total": "49.99",
+  "paid": "true",
+}
+```
+
+Let me know if you need anything else.

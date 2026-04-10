@@ -7,4 +7,5 @@ export {
   stabilizeFromLlm,
   type LlmStabilizeResult,
   type LlmStabilizeSuccess,
+  type StabilizeFromLlmOptions,
 } from '../services/llmOutputPipeline.js'

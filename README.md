@@ -11,7 +11,7 @@ Full project description (Hungarian): **[PROJECT.md](./PROJECT.md)**.
 | GET | `/` | Service name + version |
 | GET | `/v1/health` | Liveness + endpoint list |
 | POST | `/v1/llm/stabilize` | LLM-oriented pipeline on `raw` string → parsed JSON (`llmHints` shows what ran) |
-| POST | `/v1/llm/validate-schema` | Same prep + flat schema validation, coercion, strict/lenient |
+| POST | `/v1/llm/validate-schema` | Same prep + **flat or nested** schema validation, coercion, strict/lenient |
 | POST | `/v1/text/stats` | chars, lines, words, rough token estimate |
 | POST | `/v1/hash/sha256` | SHA-256 (utf8 or hex input) |
 

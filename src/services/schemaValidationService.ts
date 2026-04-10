@@ -6,13 +6,16 @@ export type FieldError = {
 
 const ALLOWED = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object', 'any'])
 
-function normalizeExpected(raw: unknown): string | null {
+export function normalizeScalarType(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
   const s = raw.toLowerCase()
   return ALLOWED.has(s) ? s : null
 }
 
-function checkType(value: unknown, expected: string): boolean {
+/** @deprecated Use normalizeScalarType */
+export const normalizeExpected = normalizeScalarType
+
+export function checkScalarType(value: unknown, expected: string): boolean {
   switch (expected) {
     case 'any':
       return true
@@ -32,6 +35,9 @@ function checkType(value: unknown, expected: string): boolean {
       return false
   }
 }
+
+/** @deprecated Use checkScalarType */
+export const checkType = checkScalarType
 
 export type SchemaValidationInput = {
   data: Record<string, unknown>
@@ -62,7 +68,7 @@ export function validateSimpleSchema(input: SchemaValidationInput): SchemaValida
   }
 
   for (const [key, expectedRaw] of Object.entries(schema)) {
-    const expected = normalizeExpected(expectedRaw)
+    const expected = normalizeScalarType(expectedRaw)
     if (expected === null) {
       fieldErrors.push({
         field: key,
@@ -84,7 +90,7 @@ export function validateSimpleSchema(input: SchemaValidationInput): SchemaValida
       continue
     }
 
-    if (!checkType(value, expected)) {
+    if (!checkScalarType(value, expected)) {
       fieldErrors.push({
         field: key,
         code: 'type_mismatch',
