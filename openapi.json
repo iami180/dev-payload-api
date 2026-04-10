@@ -155,7 +155,7 @@
           "LLM Output"
         ],
         "summary": "Séma-validáció (flat / nested), contract gateway, drift jelentés",
-        "description": "Ugyanaz a prep, mint a stabilize-nál, majd:\n- Gyökér **kötelezően** sima **`{...}`** objektum.\n- **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.\n- **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (kozponti \"hard fail\" kapu).\n- **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.\n- Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.\n- **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).\n",
+        "description": "Ugyanaz a prep, mint a stabilize-nál, majd:\n- Gyökér **kötelezően** sima **`{...}`** objektum.\n- **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.\n- **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (központi \"hard fail\" kapu).\n- **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.\n- Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.\n- **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).\n",
         "operationId": "llmValidateSchema",
         "requestBody": {
           "required": true,

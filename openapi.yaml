@@ -117,7 +117,7 @@ paths:
         Ugyanaz a prep, mint a stabilize-nál, majd:
         - Gyökér **kötelezően** sima **`{...}`** objektum.
         - **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.
-        - **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (kozponti "hard fail" kapu).
+        - **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (központi "hard fail" kapu).
         - **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.
         - Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.
         - **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).
