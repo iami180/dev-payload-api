@@ -2,6 +2,8 @@
 
 **API version:** `0.5.0` (matches `GET /` and `openapi.yaml`). **Spec:** import [`openapi.yaml`](https://github.com/iami180/dev-payload-api/blob/main/openapi.yaml) or [`openapi.json`](https://github.com/iami180/dev-payload-api/blob/main/openapi.json) into RapidAPI; set `servers.url` to your HTTPS base (no trailing slash).
 
+**Full integration (all request/response fields, tables, examples):** [`INTEGRATION.md`](https://github.com/iami180/dev-payload-api/blob/main/INTEGRATION.md).
+
 **RapidAPI tip:** If character limits are tight, use the short blurb below + link to this file for registry, nested schema, and error details.
 
 ---

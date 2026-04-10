@@ -21,6 +21,8 @@ Full project description (Hungarian): **[PROJECT.md](./PROJECT.md)**.
 
 This project is meant to be consumed as an **API** (e.g. listed on RapidAPI). Step-by-step: **[RAPIDAPI.md](./RAPIDAPI.md)**. Import `openapi.yaml` after setting the `servers` URL to your HTTPS deployment.
 
+**Field-by-field integration (requests, responses, status codes):** **[INTEGRATION.md](./INTEGRATION.md)**.
+
 ## Run locally
 
 ```bash
