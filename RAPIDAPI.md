@@ -4,7 +4,7 @@ This repo is an **HTTP API** (no web UI). Use this checklist after your backend 
 
 ## 1. Prepare the spec
 
-1. Prefer **`openapi.yaml`** (spec **0.5.0**). If the Hub shows **“unknown internal error”** on save, try **`openapi.json`** instead (same spec, bundled — some RapidAPI imports handle JSON more reliably).
+1. Use **`openapi.yaml`** (spec **0.5.0**), maintained for **RapidAPI import** (simple structure, explicit fields, local `$ref` only). If the Hub shows **“unknown internal error”** on save, try **`openapi.json`** (bundled).
 2. Replace `https://YOUR_HOST` under `servers` with your real base URL, **without** a trailing slash  
    (e.g. `https://dev-payload-api.onrender.com`). A placeholder host can sometimes confuse the Hub; use your **live** URL before **Save**.
 3. Regenerate JSON after YAML edits: `npx @redocly/cli bundle openapi.yaml -o openapi.json` (or `npm run openapi:bundle`).

@@ -1,51 +1,52 @@
 openapi: 3.0.3
 info:
   title: PayloadFix
-  description: |
-    **PayloadFix** — LLM / chatbot szöveg → **tiszta JSON**, opcionálisan **szerződés-szerű validáció** (flat vagy nested séma), **registry** (mentett, verziózott sémák), **drift napló**, **metering**.
-
-    **Két fő használat:**
-    - **`POST /v1/llm/stabilize`** — legjobb erőfeszítés: fence, prose, `jsonrepair`; gyökér lehet tömb/primitív is.
-    - **`POST /v1/llm/validate-schema`** — gyökér **kötelezően `{...}` objektum**; séma inline **`schema`** *vagy* **`schemaRef`** a registry-ből; **`contractEnforcement`**, **`unknownFieldPolicy`**, **`transparency`**, **`driftReport`**, **`contractGateway`**, **`meteringHint`**.
-
-    **Registry:** `POST/GET /v1/registry/schemas`, verzió: `POST .../versions`, összesítő: **`GET /v1/registry/metering`**.
-
-    **Auth:** Ha a szerveren be van állítva `API_KEYS`, minden **`/v1/*`** kéréshez **`X-API-Key`**. A **`GET /`** nyilvános. RapidAPI-n gyakran a provider backend beállításában adod hozzá az `X-API-Key`-t az origin felé.
-
-    **Hibakódok:** `INVALID_BODY`, `REQUEST_VALIDATION_FAILED`, `UNAUTHORIZED`, `INVALID_JSON`, `PARSE_FAILED`, `ROOT_NOT_OBJECT`, `SCHEMA_VALIDATION_FAILED`, `INVALID_NESTED_SCHEMA`, `SCHEMA_REF_NOT_FOUND`, `NOT_FOUND`, `INVALID_HEX_INPUT`.
-
-    Külső LLM hívás **nincs** — minden helyben fut a szerveren.
-
-    **Import után:** cseréld a `servers[0].url` értékét a saját HTTPS base URL-edre (perjel nélkül).
   version: 0.5.0
+  description: |
+    Extract and repair JSON from messy LLM text. Validate against flat or nested schemas,
+    optional registry (versioned schemas), drift logging, and metering.
+    No external LLM calls; all processing runs on this server.
+    If API_KEYS is set on the server, send header X-API-Key on /v1/* routes.
+  termsOfService: https://github.com/iami180/dev-payload-api/blob/main/README.md
   contact:
     name: PayloadFix API
     url: https://github.com/iami180/dev-payload-api
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
+  x-category: Tools
+  x-long-description: |
+    PayloadFix cleans model output into structured JSON and validates it against your schema.
+    Use POST /v1/llm/stabilize for parse/repair. Use POST /v1/llm/validate-schema for production
+    contracts (strict mode, coercion, contractEnforcement, driftReport). Registry endpoints store versioned schemas.
+  x-website: https://github.com/iami180/dev-payload-api
+  x-public: true
+  x-documentation:
+    readme: https://github.com/iami180/dev-payload-api/blob/main/RAPIDAPI_README.md
 
 servers:
   - url: https://YOUR_HOST
-    description: >
-      Cseréld YOUR_HOST-ot a saját HTTPS originre (nincs záró perjel), pl. https://dev-payload-api.onrender.com
+    description: Replace YOUR_HOST with your HTTPS base URL (no trailing slash).
 
 tags:
   - name: Health
-    description: Meta és életjel.
+    description: Service metadata and liveness.
   - name: LLM Output
-    description: Stabilize (parse/repair) és validate-schema (szerződés / séma).
+    description: Stabilize (parse/repair) and validate-schema.
   - name: Registry
-    description: Mentett sémák, verziók, shape diff, aggregate metering.
+    description: Stored schemas, versions, metering.
   - name: Utilities
-    description: Szöveg statisztika és SHA-256.
+    description: Text stats and SHA-256.
+
+security:
+  - ApiKeyAuth: []
 
 paths:
   /:
     get:
       tags: [Health]
-      summary: Szolgáltatás meta
-      description: Nyilvános; nem kell API kulcs. Név, verzió, docs hivatkozás.
+      summary: Service metadata
+      description: Public. Returns service name, version, and docs path. No API key required.
       operationId: getRootMeta
       security: []
       responses:
@@ -55,11 +56,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RootMetaResponse'
+              example:
+                service: PayloadFix
+                tagline: 'LLM output reliability: extract, repair, schema validation, coercion, and confidence for production pipelines'
+                version: '0.5.0'
+                docs: /v1/health
 
   /v1/health:
     get:
       tags: [Health]
-      summary: Liveness és végpontlista
+      summary: Liveness and endpoint list
+      description: Returns ok flag and a list of available endpoints.
       operationId: getHealth
       responses:
         '200':
@@ -68,8 +75,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+                focus: 'Structured LLM output — parse, validate, coerce, strict/lenient modes'
+                endpoints:
+                  - POST /v1/llm/stabilize
+                  - POST /v1/llm/validate-schema
+                  - POST /v1/registry/schemas
+                  - GET /v1/registry/schemas
+                  - GET /v1/registry/schemas/:id
+                  - POST /v1/registry/schemas/:id/versions
+                  - GET /v1/registry/metering
+                  - POST /v1/text/stats
+                  - POST /v1/hash/sha256
         '401':
-          description: Hiányzó vagy hibás X-API-Key (ha API_KEYS be van állítva)
+          description: Missing or invalid X-API-Key when API_KEYS is configured on the server.
           content:
             application/json:
               schema:
@@ -78,10 +98,10 @@ paths:
   /v1/llm/stabilize:
     post:
       tags: [LLM Output]
-      summary: JSON kinyerés / javítás LLM-szerű szövegből
+      summary: Parse or repair JSON from LLM-style text
       description: |
-        Fence levágás, beágyazott JSON, `jsonrepair`. **Nem** garantál egyetlen üzleti `{object}` alakot.
-        Sikeres válaszban **`warnings`** (pl. több JSON jelölt).
+        Strips markdown fences, runs extraction/repair. Does not guarantee a single business object root.
+        On failure returns 422 with code INVALID_JSON and repair diagnostics in error.details.
       operationId: llmStabilize
       requestBody:
         required: true
@@ -89,38 +109,59 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/StabilizeRequest'
+            example:
+              raw: 'Here is the result:\n```json\n{"a":1,}\n```'
+              sortKeys: true
+              pretty: true
       responses:
         '200':
-          description: Sikeres parse (közvetlenül vagy javítás után)
+          description: Parsed JSON (direct or after repair).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StabilizeSuccessResponse'
+              example:
+                success: true
+                ok: true
+                method: repaired
+                llmHints: ['markdown_fence_removed']
+                warnings: []
+                data:
+                  a: 1
+                stringified: "{\n  \"a\": 1\n}"
         '400':
-          description: Érvénytelen body / Zod
+          description: Invalid JSON body or request validation failed.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '422':
-          description: Nem sikerült JSON-t kinyerni
+          description: Could not extract valid JSON (INVALID_JSON).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StabilizeError422Response'
+                $ref: '#/components/schemas/StabilizeErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_JSON
+                  message: 'Unexpected character'
+                  details:
+                    parseCode: invalid_json
+                    failedStage: syntax_repair
+                    repairTrace: ['ingest_raw', 'all_repair_paths_exhausted']
+                    llmHints: []
+                llmHints: []
+                warnings: []
 
   /v1/llm/validate-schema:
     post:
       tags: [LLM Output]
-      summary: Séma-validáció (flat / nested), contract gateway, drift jelentés
+      summary: Validate parsed object against a schema
       description: |
-        Ugyanaz a prep, mint a stabilize-nál, majd:
-        - Gyökér **kötelezően** sima **`{...}`** objektum.
-        - **Vagy** `schema` (inline), **vagy** `schemaRef` — legalább az egyik kötelező.
-        - **`contractEnforcement`:** strict + ismeretlen kulcsok tiltása (központi "hard fail" kapu).
-        - **`unknownFieldPolicy`:** allow | reject | strip | report; nested-ben `additionalProperties: false`.
-        - Válaszban gyakran **`transparency`**, **`contractGateway`**, **`meteringHint`**; hibánál **`driftReport`**, **`richFailures`**, **`failureExplanation`**.
-        - **`schemaRef` + `driftLog`:** append drift napló fájlba a szerveren (`PAYLOADFIX_DATA_DIR`).
+        Same preprocessing as stabilize, then root must be a plain JSON object.
+        Provide either schema (inline) or schemaRef (registry). strict mode returns 422 on validation failure.
+        contractEnforcement forces strict plus reject on unknown keys.
       operationId: llmValidateSchema
       requestBody:
         required: true
@@ -137,34 +178,44 @@ paths:
               mode: strict
       responses:
         '200':
-          description: success true, vagy lenient módban success false diagnosztikával
+          description: success true and payload satisfies schema (or lenient mode with diagnostics).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ValidateSchemaResponse'
+                $ref: '#/components/schemas/ValidateSchemaSuccessResponse'
         '400':
-          description: Body / Zod / INVALID_NESTED_SCHEMA
+          description: Bad body, Zod validation, or invalid nested schema definition.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '404':
-          description: SCHEMA_REF_NOT_FOUND — ismeretlen schemaId vagy verzió
+          description: SCHEMA_REF_NOT_FOUND when schemaRef points to missing id or version.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '422':
-          description: Strict — PARSE_FAILED, ROOT_NOT_OBJECT, SCHEMA_VALIDATION_FAILED
+          description: strict mode — PARSE_FAILED, ROOT_NOT_OBJECT, or SCHEMA_VALIDATION_FAILED.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ValidateSchemaResponse'
+                $ref: '#/components/schemas/ValidateSchemaErrorResponse'
+              example:
+                success: false
+                error:
+                  code: SCHEMA_VALIDATION_FAILED
+                  message: One or more fields failed schema validation.
+                fieldErrors:
+                  - field: price
+                    code: type_mismatch
+                    message: 'Field "price" expected type "number" but got string'
 
   /v1/registry/schemas:
     post:
       tags: [Registry]
-      summary: Új séma regisztrálása (verzió 1)
+      summary: Register a new schema (version 1)
+      description: Creates a new schemaId. shapeDiffFromPrevious is always null in this response.
       operationId: registryCreateSchema
       requestBody:
         required: true
@@ -172,51 +223,71 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RegistryCreateRequest'
+            example:
+              name: MyContract
+              schema:
+                event: string
+                quantity: number
       responses:
         '200':
-          description: schemaId + version
+          description: New schema id and version 1.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryCreateResponse'
+              example:
+                success: true
+                ok: true
+                schemaId: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                version: 1
+                shapeDiffFromPrevious: null
         '400':
-          description: Érvénytelen séma body vagy Zod validáció
+          description: Invalid body or schema limits exceeded.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
     get:
       tags: [Registry]
-      summary: Összes regisztrált séma listája
+      summary: List registered schemas
+      description: Returns id, name, latestVersion, versionCount for each schema.
       operationId: registryListSchemas
       responses:
         '200':
-          description: Lista a regisztrált sémákról (id, név, verziók)
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryListResponse'
+        '401':
+          description: Unauthorized when API_KEYS is set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
 
   /v1/registry/schemas/{id}:
     get:
       tags: [Registry]
-      summary: Egy séma teljes dokumentuma (minden verzió)
+      summary: Get full schema document
+      description: All versions with schema JSON and optional changelog and shapeDiffFromPrevious per version.
       operationId: registryGetSchema
       parameters:
         - name: id
           in: path
           required: true
+          description: Schema id returned from POST /v1/registry/schemas.
           schema:
             type: string
       responses:
         '200':
-          description: Séma dokumentum minden verzióval
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryDocumentResponse'
         '404':
-          description: Ismeretlen schema id
+          description: NOT_FOUND — unknown schema id.
           content:
             application/json:
               schema:
@@ -225,12 +296,14 @@ paths:
   /v1/registry/schemas/{id}/versions:
     post:
       tags: [Registry]
-      summary: Új sémaverzió + shape diff az előzőhöz képest
+      summary: Add a new schema version
+      description: Returns new version number and shapeDiffFromPrevious compared to the previous version.
       operationId: registryAddVersion
       parameters:
         - name: id
           in: path
           required: true
+          description: Schema id.
           schema:
             type: string
       requestBody:
@@ -239,21 +312,27 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RegistryVersionRequest'
+            example:
+              schema:
+                event: string
+                quantity: number
+                fulfilled: boolean
+              changelog: Add fulfilled field
       responses:
         '200':
-          description: Új verzió száma és shape diff az előzőhöz képest
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegistryVersionResponse'
         '400':
-          description: Érvénytelen séma vagy body
+          description: Invalid body or schema limits.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
         '404':
-          description: Ismeretlen schema id
+          description: NOT_FOUND — unknown schema id.
           content:
             application/json:
               schema:
@@ -262,22 +341,28 @@ paths:
   /v1/registry/metering:
     get:
       tags: [Registry]
-      summary: Aggregate metering (siker / összes hívás, registry események)
-      description: |
-        **Siker-alapú számlázáshoz** használd a `validateSchema.success` / `validateSchema.total` és a válasz **`meteringHint.billableValidateSuccess`** mezőjét egyes validate hívásoknál.
+      summary: Aggregate metering counters
+      description: Counts stabilize/validateSchema success and totals, plus registry events.
       operationId: registryGetMetering
       responses:
         '200':
-          description: Összesített metering számlálók
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeteringWrapperResponse'
+        '401':
+          description: Unauthorized when API_KEYS is set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
 
   /v1/text/stats:
     post:
       tags: [Utilities]
-      summary: Szöveg statisztika (chars, lines, words, rough token hint)
+      summary: Character, line, and word statistics
+      description: roughTokensLlMHint is approximately chars divided by 4, not a real tokenizer.
       operationId: textStats
       requestBody:
         required: true
@@ -285,15 +370,17 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/TextStatsRequest'
+            example:
+              text: "hello world\nline two"
       responses:
         '200':
-          description: Karakter/sor/szó és durva token becslés
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TextStatsResponse'
         '400':
-          description: Érvénytelen vagy üres text mező
+          description: Invalid body or validation failed.
           content:
             application/json:
               schema:
@@ -302,7 +389,8 @@ paths:
   /v1/hash/sha256:
     post:
       tags: [Utilities]
-      summary: SHA-256 (utf8 vagy hex bájtok)
+      summary: SHA-256 hash of UTF-8 text or raw hex bytes
+      description: encoding hex requires even-length hexadecimal string.
       operationId: hashSha256
       requestBody:
         required: true
@@ -310,15 +398,18 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/HashSha256Request'
+            example:
+              text: payload
+              encoding: utf8
       responses:
         '200':
-          description: SHA-256 hash hex stringgel
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Sha256Response'
         '400':
-          description: Érvénytelen body vagy hex input
+          description: Invalid body, validation failed, or INVALID_HEX_INPUT for hex mode.
           content:
             application/json:
               schema:
@@ -330,92 +421,94 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
-      description: >
-        Kötelező, ha a szerveren `API_KEYS` be van állítva. RapidAPI-n gyakran fix header az origin felé.
+      description: Required when the server environment variable API_KEYS is set (comma-separated keys).
 
   schemas:
-    ApiErrorDetail:
-      type: object
-      required: [code, message]
-      properties:
-        code:
-          type: string
-        message:
-          type: string
-        details:
-          type: object
-          additionalProperties: true
-
     StandardErrorResponse:
       type: object
       required: [success, error]
+      description: Standard API error envelope.
       properties:
         success:
           type: boolean
+          description: Always false for this shape.
           enum: [false]
         error:
-          $ref: '#/components/schemas/ApiErrorDetail'
+          type: object
+          required: [code, message]
+          description: Error code and human-readable message.
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary.
+            details:
+              type: object
+              description: Optional structured details (e.g. Zod issues).
+              additionalProperties: true
 
     RootMetaResponse:
       type: object
+      description: Root GET response.
       properties:
         service:
           type: string
-          example: PayloadFix
+          description: Service name.
         tagline:
           type: string
+          description: Short product description.
         version:
           type: string
-          example: 0.5.0
+          description: API version string.
         docs:
           type: string
-          example: /v1/health
+          description: Path to health/docs endpoint.
 
     HealthResponse:
       type: object
       required: [ok, endpoints]
+      description: Health check payload.
       properties:
         ok:
           type: boolean
+          description: Always true when healthy.
         focus:
           type: string
+          description: Short capability summary.
         endpoints:
           type: array
+          description: List of available endpoint strings.
           items:
             type: string
-          example:
-            - POST /v1/llm/stabilize
-            - POST /v1/llm/validate-schema
-            - POST /v1/registry/schemas
-            - GET /v1/registry/schemas
-            - GET /v1/registry/schemas/:id
-            - POST /v1/registry/schemas/:id/versions
-            - GET /v1/registry/metering
-            - POST /v1/text/stats
-            - POST /v1/hash/sha256
 
     StabilizeRequest:
       type: object
       required: [raw]
+      description: Input text from an LLM or chat transcript.
       properties:
         raw:
           type: string
+          description: Raw text that may contain JSON, fences, or prose.
           minLength: 1
         sortKeys:
           type: boolean
+          description: Sort object keys in the parsed result (default true).
           default: true
         pretty:
           type: boolean
+          description: Pretty-print stringified output (default true).
           default: true
         preferJsonBlock:
           type: string
+          description: When multiple top-level object blocks exist, pick first, last, or largest.
           enum: [first, last, largest]
-          description: >
-            Több top-level `{...}` blokk esetén melyik maradjon (alapértelmezés: largest, döntetlennél a szövegben későbbi).
 
     StabilizeSuccessResponse:
       type: object
       required: [success, ok, method, llmHints, warnings, data, stringified]
+      description: Successful stabilize response.
       properties:
         success:
           type: boolean
@@ -425,33 +518,51 @@ components:
           enum: [true]
         method:
           type: string
+          description: direct or repaired.
           enum: [direct, repaired]
         repairedFrom:
           type: string
+          description: Repair tool name when method is repaired.
         llmHints:
           type: array
+          description: Pipeline hints applied to the input.
           items:
             type: string
         warnings:
           type: array
+          description: Non-fatal warnings (e.g. ambiguous fragments).
           items:
             type: string
-        data: {}
+        data:
+          type: object
+          description: Parsed JSON value (object, array, or primitive).
+          additionalProperties: true
         stringified:
           type: string
+          description: JSON string of data, formatted per pretty flag.
 
-    StabilizeError422Response:
+    StabilizeErrorResponse:
       type: object
-      description: >
-        Sikertelen stabilize: `error.details` gyakran tartalmaz `failedStage` (`payload_too_large` | `syntax_repair`)
-        és `repairTrace` (generikus lépések — hol állt meg a javítás, nem mondat-specifikus logika).
-      required: [success, error, llmHints]
+      required: [success, error, llmHints, warnings]
+      description: Stabilize failure (HTTP 422). error.code is INVALID_JSON.
       properties:
         success:
           type: boolean
           enum: [false]
         error:
-          $ref: '#/components/schemas/ApiErrorDetail'
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: INVALID_JSON
+              enum: [INVALID_JSON]
+            message:
+              type: string
+            details:
+              type: object
+              description: May include parseCode, hint, failedStage, repairTrace, llmHints.
+              additionalProperties: true
         llmHints:
           type: array
           items:
@@ -464,59 +575,71 @@ components:
     SchemaRef:
       type: object
       required: [schemaId]
+      description: Reference to a schema stored in the registry.
       properties:
         schemaId:
           type: string
+          description: Registry schema id.
           minLength: 8
           maxLength: 128
         version:
           type: integer
+          description: Optional pinned version; latest if omitted.
           minimum: 1
-          description: Ha hiányzik, a legutóbbi verzió.
 
     ValidateSchemaRequest:
       type: object
       required: [raw]
-      description: >
-        **Kötelező:** `raw`. **Kötelező az egyik:** `schema` VAGY `schemaRef` (a szerver validálja; mindkettő hiánya → 400).
+      description: |
+        Exactly one of schema or schemaRef must be present (validated by the server).
+        raw is model output text (max 512 KiB).
       properties:
         raw:
           type: string
+          description: LLM output string to parse then validate.
           minLength: 1
         schema:
           type: object
+          description: Inline flat or nested schema object.
           additionalProperties: true
         schemaRef:
           $ref: '#/components/schemas/SchemaRef'
         required:
           type: array
+          description: Field names that must be present in the parsed object.
+          maxItems: 100
           items:
             type: string
-          maxItems: 100
         coerceTypes:
           type: boolean
+          description: Coerce string numbers/booleans where possible.
           default: false
         mode:
           type: string
+          description: strict returns 422 on validation failure; lenient may return 200 with errors in body.
           enum: [strict, lenient]
           default: strict
         unknownFieldPolicy:
           type: string
+          description: How to handle keys not in the schema.
           enum: [allow, reject, strip, report]
           default: allow
         contractEnforcement:
           type: boolean
+          description: Forces strict mode and reject policy on unknown keys.
           default: false
         driftLog:
           type: boolean
+          description: When true and schemaRef is used, append a line to server drift log.
           default: true
-          description: Ha true és van schemaRef, drift esemény append a szerveren.
         richFailureExplanations:
           type: boolean
+          description: Include richFailures and failureExplanation on errors when true.
           default: true
 
     FieldError:
       type: object
+      description: Single field validation error.
       properties:
         field:
           type: string
@@ -525,160 +648,21 @@ components:
         message:
           type: string
 
-    FailureExplanation:
+    ValidateSchemaSuccessResponse:
       type: object
-      properties:
-        explanation:
-          type: string
-        remediationHint:
-          type: string
-
-    RichFailureItem:
-      type: object
-      properties:
-        field:
-          type: string
-        code:
-          type: string
-        message:
-          type: string
-        explanation:
-          type: string
-        remediationHint:
-          type: string
-        severity:
-          type: string
-          enum: [error, warning]
-
-    ContractGatewayMeta:
-      type: object
-      properties:
-        opinionated:
-          type: boolean
-        hardFailGuaranteeActive:
-          type: boolean
-        contractSatisfied:
-          type: boolean
-          nullable: true
-        failureClass:
-          type: string
-          nullable: true
-          description: parse | root_shape | invalid_contract_definition | schema_violation
-        teamSummary:
-          type: string
-          nullable: true
-
-    MeteringHint:
-      type: object
-      properties:
-        billableValidateSuccess:
-          type: boolean
-        event:
-          type: string
-          example: validate_schema
-
-    DriftFieldDetail:
-      type: object
-      properties:
-        field:
-          type: string
-        code:
-          type: string
-        receivedPreview:
-          type: string
-        note:
-          type: string
-        beforeAfter:
-          type: object
-          properties:
-            before: {}
-            after: {}
-
-    DriftReport:
-      type: object
-      properties:
-        driftFields:
-          type: array
-          items:
-            type: string
-        details:
-          type: array
-          items:
-            $ref: '#/components/schemas/DriftFieldDetail'
-
-    Transparency:
-      type: object
-      properties:
-        pipeline:
-          type: object
-          properties:
-            stages:
-              type: array
-              items:
-                type: string
-        coercions:
-          type: array
-          items:
-            type: object
-            properties:
-              path:
-                type: string
-              from: {}
-              to: {}
-              message:
-                type: string
-        removedFields:
-          type: array
-          items:
-            type: string
-        unknownFields:
-          type: array
-          items:
-            type: string
-        syntaxRepairs:
-          type: array
-          items:
-            type: object
-            properties:
-              kind:
-                type: string
-              tool:
-                type: string
-        warnings:
-          type: array
-          items:
-            type: string
-
-    ValidateSchemaResponse:
-      type: object
-      description: Siker és hiba esetén változó mezők (success, error, fieldErrors, stb.)
+      required: [success]
+      description: Successful validate-schema (HTTP 200). Many optional diagnostic fields mirror the live API.
       properties:
         success:
           type: boolean
-        error:
-          $ref: '#/components/schemas/ApiErrorDetail'
-        failureExplanation:
-          $ref: '#/components/schemas/FailureExplanation'
-        richFailures:
-          type: array
-          items:
-            $ref: '#/components/schemas/RichFailureItem'
-        driftReport:
-          $ref: '#/components/schemas/DriftReport'
-        contractGateway:
-          $ref: '#/components/schemas/ContractGatewayMeta'
-        meteringHint:
-          $ref: '#/components/schemas/MeteringHint'
-        registryContext:
+          enum: [true]
+        data:
           type: object
-          properties:
-            schemaId:
-              type: string
-            version:
-              type: integer
-        data: {}
+          description: Validated object after unknown-field policy and coercion.
+          additionalProperties: true
         issues:
           type: array
+          description: Human-readable issue strings.
           items:
             type: string
         fieldErrors:
@@ -687,6 +671,7 @@ components:
             $ref: '#/components/schemas/FieldError'
         confidence:
           type: number
+          description: Heuristic 0 to 1.
         llmHints:
           type: array
           items:
@@ -700,8 +685,91 @@ components:
           type: array
           items:
             type: string
+        registryContext:
+          type: object
+          properties:
+            schemaId:
+              type: string
+            version:
+              type: integer
+        contractGateway:
+          type: object
+          description: Opinionated gateway metadata (opinionated, hardFailGuaranteeActive, contractSatisfied, failureClass, teamSummary).
+          additionalProperties: true
+        meteringHint:
+          type: object
+          description: billableValidateSuccess and event name for billing proxies.
+          additionalProperties: true
         transparency:
-          $ref: '#/components/schemas/Transparency'
+          type: object
+          description: pipeline.stages, coercions, removedFields, unknownFields, syntaxRepairs, warnings.
+          additionalProperties: true
+
+    ValidateSchemaErrorResponse:
+      type: object
+      required: [success, error]
+      description: validate-schema error body (HTTP 422 in strict mode, or 200 in lenient with success false).
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: PARSE_FAILED, ROOT_NOT_OBJECT, SCHEMA_VALIDATION_FAILED, etc.
+            message:
+              type: string
+            details:
+              type: object
+              description: May include parseCode, hint, llmHints, repairTrace, failedStage for PARSE_FAILED.
+              additionalProperties: true
+        issues:
+          type: array
+          items:
+            type: string
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        failureExplanation:
+          type: object
+          additionalProperties: true
+        richFailures:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        driftReport:
+          type: object
+          additionalProperties: true
+        contractGateway:
+          type: object
+          additionalProperties: true
+        meteringHint:
+          type: object
+          additionalProperties: true
+        transparency:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+        data:
+          type: object
+          additionalProperties: true
+        llmHints:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        registryContext:
+          type: object
+          additionalProperties: true
 
     RegistryCreateRequest:
       type: object
@@ -709,14 +777,16 @@ components:
       properties:
         name:
           type: string
+          description: Optional display name.
           maxLength: 200
         schema:
           type: object
+          description: Flat or nested schema definition.
           additionalProperties: true
 
     RegistryCreateResponse:
       type: object
-      required: [success, ok, schemaId, version]
+      required: [success, ok, schemaId, version, shapeDiffFromPrevious]
       properties:
         success:
           type: boolean
@@ -729,7 +799,7 @@ components:
         version:
           type: integer
         shapeDiffFromPrevious:
-          description: Első verziónál null; később diff az előzőhöz képest
+          description: JSON null when creating the first version of a schema.
           type: object
           nullable: true
           properties:
@@ -785,31 +855,7 @@ components:
           type: array
           items:
             type: object
-            properties:
-              version:
-                type: integer
-              createdAt:
-                type: string
-              schema:
-                type: object
-                additionalProperties: true
-              changelog:
-                type: string
-              shapeDiffFromPrevious:
-                type: object
-                properties:
-                  addedPaths:
-                    type: array
-                    items:
-                      type: string
-                  removedPaths:
-                    type: array
-                    items:
-                      type: string
-                  typeChanges:
-                    type: array
-                    items:
-                      type: object
+            additionalProperties: true
 
     RegistryVersionRequest:
       type: object
@@ -822,31 +868,38 @@ components:
           type: string
           maxLength: 2000
 
+    ShapeDiff:
+      type: object
+      description: Structural diff between schema versions.
+      properties:
+        addedPaths:
+          type: array
+          items:
+            type: string
+        removedPaths:
+          type: array
+          items:
+            type: string
+        typeChanges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
     RegistryVersionResponse:
       type: object
       required: [success, ok, version, shapeDiffFromPrevious]
       properties:
         success:
           type: boolean
+          enum: [true]
         ok:
           type: boolean
+          enum: [true]
         version:
           type: integer
         shapeDiffFromPrevious:
-          type: object
-          properties:
-            addedPaths:
-              type: array
-              items:
-                type: string
-            removedPaths:
-              type: array
-              items:
-                type: string
-            typeChanges:
-              type: array
-              items:
-                type: object
+          $ref: '#/components/schemas/ShapeDiff'
 
     MeteringSnapshot:
       type: object
@@ -942,6 +995,3 @@ components:
         encoding:
           type: string
           enum: [utf8, hex]
-
-security:
-  - ApiKeyAuth: []
